@@ -1,7 +1,9 @@
 (function () {
     'use strict';
 
-    function message(msg) {                    
+    // import './index.css';
+
+    function message(msg) {
         alert(msg);
     }
 
@@ -10,7 +12,7 @@
         btn.addEventListener('click', function() {
             var t = document.getElementById('text');
             message(t.value);
-        });    
+        });
     });
 
 })();

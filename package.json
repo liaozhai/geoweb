@@ -27,5 +27,8 @@
     "rollup-plugin-scss": "^3.0.0",
     "sass": "^1.54.5",
     "serve": "^14.0.1"
+  },
+  "dependencies": {
+    "ol": "^7.1.0"
   }
 }
