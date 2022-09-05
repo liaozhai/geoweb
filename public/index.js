@@ -56273,7 +56273,7 @@
   new GeoJSON();
 
   window.addEventListener('load', /*#__PURE__*/_asyncToGenerator( /*#__PURE__*/_regeneratorRuntime().mark(function _callee() {
-    var response, fc, vectorSource, vectorLayer;
+    var response, fc, vectorSource, styles, styleFunction, vectorLayer;
     return _regeneratorRuntime().wrap(function _callee$(_context) {
       while (1) {
         switch (_context.prev = _context.next) {
@@ -56291,8 +56291,79 @@
             vectorSource = new VectorSource({
               features: new GeoJSON().readFeatures(fc)
             });
+            styles = {
+              /*'Point': new Style({
+                  image: image,
+              }),*/
+              'LineString': new Style({
+                stroke: new Stroke({
+                  color: 'green',
+                  width: 1
+                })
+              }),
+              'MultiLineString': new Style({
+                stroke: new Stroke({
+                  color: 'green',
+                  width: 1
+                })
+              }),
+
+              /*'MultiPoint': new Style({
+                  image: image,
+              }),*/
+              'MultiPolygon': new Style({
+                stroke: new Stroke({
+                  color: 'yellow',
+                  width: 1
+                }),
+                fill: new Fill({
+                  color: 'rgba(219,130,62,0.82)'
+                })
+              }),
+              'Polygon': new Style({
+                stroke: new Stroke({
+                  color: 'blue',
+                  lineDash: [4],
+                  width: 3
+                }),
+                fill: new Fill({
+                  color: 'rgba(159,234,29,0.86)'
+                })
+              }),
+              'GeometryCollection': new Style({
+                stroke: new Stroke({
+                  color: 'magenta',
+                  width: 2
+                }),
+                fill: new Fill({
+                  color: 'magenta'
+                }),
+                image: new CircleStyle({
+                  radius: 10,
+                  fill: null,
+                  stroke: new Stroke({
+                    color: 'magenta'
+                  })
+                })
+              }),
+              'Circle': new Style({
+                stroke: new Stroke({
+                  color: 'rgba(239,101,161,0.89)',
+                  width: 2
+                }),
+                fill: new Fill({
+                  color: 'rgba(255,0,0,0.2)'
+                })
+              })
+            };
+
+            styleFunction = function styleFunction(feature) {
+              return styles[feature.getGeometry().getType()];
+            };
+
             vectorLayer = new VectorLayer({
-              source: vectorSource
+              source: vectorSource,
+              style: styleFunction
             });
             new Map$1({
               target: 'map',
@@ -56305,7 +56376,7 @@
               })
             });
 
-          case 9:
+          case 11:
           case "end":
             return _context.stop();
         }
