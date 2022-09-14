@@ -31,7 +31,7 @@ export default {
             preferBuiltins: false,
         }),
         commonjs({
-            extensions: [ '.js', '.msj', ],
+            extensions: [ '.js', '.mjs', ],
             transformMixedEsModules: true
         }),
         scss(),
