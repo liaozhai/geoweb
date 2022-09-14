@@ -5,8 +5,10 @@ import GeoJSON from 'ol/format/GeoJSON';
 import Map from 'ol/Map';
 import View from 'ol/View';
 import {OSM, Vector as VectorSource} from 'ol/source';
-import {Tile as TileLayer, Vector as VectorLayer} from 'ol/layer';
+import {Tile, Vector as VectorLayer} from 'ol/layer';
 import {Circle as CircleStyle, Fill, Stroke, Style} from 'ol/style';
+import GeoTIFF from 'ol/source/GeoTIFF';
+import TileLayer from 'ol/layer/WebGLTile';
 
 window.addEventListener('load', async () => {    
     const response = await fetch('features.json');
@@ -88,11 +90,28 @@ window.addEventListener('load', async () => {
         source: vectorSource,
         style: styleFunction,
     });
-
+    fetch('HH_angCorrected_db.tiff')
+        .then((response) => response.blob())
+        .then((blob) => {
+            const src = new GeoTIFF({
+                sources: [
+                    {
+                        blob: blob,
+                    },
+                ],
+            });
+            map.addLayer(new TileLayer({
+                source: src,
+            }));
+            src.getView().then((viewConfig) => {
+                viewConfig.showFullExtent = true;
+                return viewConfig;
+            })
+        });
     const map = new Map({
         target: 'map',
         layers: [
-            new TileLayer({
+            new Tile({
                 source: new OSM()
             }),
             vectorLayer,

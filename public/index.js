@@ -1160,6 +1160,31 @@
       return lastResult;
     };
   }
+  /**
+   * @template T
+   * @param {function(): (T | Promise<T>)} getter A function that returns a value or a promise for a value.
+   * @return {Promise<T>} A promise for the value.
+   */
+
+  function toPromise(getter) {
+    function promiseGetter() {
+      var value;
+
+      try {
+        value = getter();
+      } catch (err) {
+        return Promise.reject(err);
+      }
+
+      if (value instanceof Promise) {
+        return value;
+      }
+
+      return Promise.resolve(value);
+    }
+
+    return promiseGetter();
+  }
 
   /**
    * @module ol/obj
@@ -2643,7 +2668,7 @@
    * @type {boolean}
    */
 
-  SAFARI && (ua.includes('version/15.4') || /cpu (os|iphone os) 15_4 like mac os x/.test(ua));
+  var SAFARI_BUG_237906 = SAFARI && (ua.includes('version/15.4') || /cpu (os|iphone os) 15_4 like mac os x/.test(ua));
   /**
    * User agent string says we are dealing with a WebKit engine.
    * @type {boolean}
@@ -2727,14 +2752,52 @@
    * @type {Transform}
    */
 
-  new Array(6);
+  var tmp_ = new Array(6);
   /**
    * Create an identity transform.
    * @return {!Transform} Identity transform.
    */
 
-  function create() {
+  function create$1() {
     return [1, 0, 0, 1, 0, 0];
+  }
+  /**
+   * Resets the given transform to an identity transform.
+   * @param {!Transform} transform Transform.
+   * @return {!Transform} Transform.
+   */
+
+  function reset(transform) {
+    return set(transform, 1, 0, 0, 1, 0, 0);
+  }
+  /**
+   * Multiply the underlying matrices of two transforms and return the result in
+   * the first transform.
+   * @param {!Transform} transform1 Transform parameters of matrix 1.
+   * @param {!Transform} transform2 Transform parameters of matrix 2.
+   * @return {!Transform} transform1 multiplied with transform2.
+   */
+
+  function multiply(transform1, transform2) {
+    var a1 = transform1[0];
+    var b1 = transform1[1];
+    var c1 = transform1[2];
+    var d1 = transform1[3];
+    var e1 = transform1[4];
+    var f1 = transform1[5];
+    var a2 = transform2[0];
+    var b2 = transform2[1];
+    var c2 = transform2[2];
+    var d2 = transform2[3];
+    var e2 = transform2[4];
+    var f2 = transform2[5];
+    transform1[0] = a1 * a2 + c1 * b2;
+    transform1[1] = b1 * a2 + d1 * b2;
+    transform1[2] = a1 * c2 + c1 * d2;
+    transform1[3] = b1 * c2 + d1 * d2;
+    transform1[4] = a1 * e2 + c1 * f2 + e1;
+    transform1[5] = b1 * e2 + d1 * f2 + f1;
+    return transform1;
   }
   /**
    * Set the transform components a-f on a given transform.
@@ -2791,6 +2854,29 @@
     return coordinate;
   }
   /**
+   * Applies rotation to the given transform.
+   * @param {!Transform} transform Transform.
+   * @param {number} angle Angle in radians.
+   * @return {!Transform} The rotated transform.
+   */
+
+  function rotate$2(transform, angle) {
+    var cos = Math.cos(angle);
+    var sin = Math.sin(angle);
+    return multiply(transform, set(tmp_, cos, sin, -sin, cos, 0, 0));
+  }
+  /**
+   * Applies scale to a given transform.
+   * @param {!Transform} transform Transform.
+   * @param {number} x Scale factor x.
+   * @param {number} y Scale factor y.
+   * @return {!Transform} The scaled transform.
+   */
+
+  function scale$3(transform, x, y) {
+    return multiply(transform, set(tmp_, x, 0, 0, y, 0, 0));
+  }
+  /**
    * Creates a scale transform.
    * @param {!Transform} target Transform to overwrite.
    * @param {number} x Scale factor x.
@@ -2800,6 +2886,17 @@
 
   function makeScale(target, x, y) {
     return set(target, x, 0, 0, y, 0, 0);
+  }
+  /**
+   * Applies translation to the given transform.
+   * @param {!Transform} transform Transform.
+   * @param {number} dx Translation x.
+   * @param {number} dy Translation y.
+   * @return {!Transform} The translated transform.
+   */
+
+  function translate$1(transform, dx, dy) {
+    return multiply(transform, set(tmp_, 1, 0, 0, 1, dx, dy));
   }
   /**
    * Creates a composite transform given an initial translation, scale, rotation, and
@@ -3618,6 +3715,31 @@
   /**
    * @module ol/proj/Units
    */
+
+  /**
+   * @typedef {'radians' | 'degrees' | 'ft' | 'm' | 'pixels' | 'tile-pixels' | 'us-ft'} Units
+   * Projection units.
+   */
+
+  /**
+   * See http://duff.ess.washington.edu/data/raster/drg/docs/geotiff.txt
+   * @type {Object<number, Units>}
+   */
+  var unitByCode = {
+    '9001': 'm',
+    '9002': 'ft',
+    '9003': 'us-ft',
+    '9101': 'radians',
+    '9102': 'degrees'
+  };
+  /**
+   * @param {number} code Unit code.
+   * @return {Units} Units.
+   */
+
+  function fromCode(code) {
+    return unitByCode[code];
+  }
   /**
    * @typedef {Object} MetersPerUnitLookup
    * @property {number} radians Radians
@@ -5137,7 +5259,7 @@
    * @type {import("../transform.js").Transform}
    */
 
-  var tmpTransform = create();
+  var tmpTransform = create$1();
   /**
    * @classdesc
    * Abstract base class; normally only used for creating subclasses and not
@@ -11485,6 +11607,18 @@
     var a = color[3] === undefined ? 1 : Math.round(color[3] * 100) / 100;
     return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
   }
+  /**
+   * @param {string} s String.
+   * @return {boolean} Whether the string is actually a valid color
+   */
+
+  function isStringColor(s) {
+    if (NAMED_COLOR_RE_.test(s)) {
+      s = fromNamed(s);
+    }
+
+    return HEX_COLOR_RE_.test(s) || s.startsWith('rgba(') || s.startsWith('rgb(');
+  }
 
   /**
    * @classdesc
@@ -13035,7 +13169,7 @@
    * @param {CanvasRenderingContext2D} context Context.
    */
 
-  function releaseCanvas(context) {
+  function releaseCanvas$1(context) {
     var canvas = context.canvas;
     canvas.width = 1;
     canvas.height = 1;
@@ -21725,13 +21859,13 @@
        * @type {import("./transform.js").Transform}
        */
 
-      _this.coordinateToPixelTransform_ = create();
+      _this.coordinateToPixelTransform_ = create$1();
       /**
        * @private
        * @type {import("./transform.js").Transform}
        */
 
-      _this.pixelToCoordinateTransform_ = create();
+      _this.pixelToCoordinateTransform_ = create$1();
       /**
        * @private
        * @type {number}
@@ -25217,7 +25351,7 @@
       key: "release",
       value: function release() {
         if (this.canvas_) {
-          releaseCanvas(this.canvas_.getContext('2d'));
+          releaseCanvas$1(this.canvas_.getContext('2d'));
           canvasPool$1.push(this.canvas_);
           this.canvas_ = null;
         }
@@ -30078,6 +30212,372 @@
 
     return VectorSource;
   }(Source);
+
+  /**
+   * Data that can be used with a DataTile.  For increased browser compatibility, use
+   * Uint8Array instead of Uint8ClampedArray where possible.
+   * @typedef {Uint8Array|Uint8ClampedArray|Float32Array|DataView} Data
+   */
+
+  /**
+   * @typedef {Object} Options
+   * @property {import("./tilecoord.js").TileCoord} tileCoord Tile coordinate.
+   * @property {function(): Promise<Data>} loader Data loader.
+   * @property {number} [transition=250] A duration for tile opacity
+   * transitions in milliseconds. A duration of 0 disables the opacity transition.
+   * @property {boolean} [interpolate=false] Use interpolated values when resampling.  By default,
+   * the nearest neighbor is used when resampling.
+   * @property {import('./size.js').Size} [size=[256, 256]] Tile size.
+   * @api
+   */
+
+  var DataTile = /*#__PURE__*/function (_Tile) {
+    _inherits(DataTile, _Tile);
+
+    var _super = _createSuper(DataTile);
+
+    /**
+     * @param {Options} options Tile options.
+     */
+    function DataTile(options) {
+      var _this;
+
+      _classCallCheck(this, DataTile);
+
+      var state = TileState.IDLE;
+      _this = _super.call(this, options.tileCoord, state, {
+        transition: options.transition,
+        interpolate: options.interpolate
+      });
+      /**
+       * @type {function(): Promise<Data>}
+       * @private
+       */
+
+      _this.loader_ = options.loader;
+      /**
+       * @type {Data}
+       * @private
+       */
+
+      _this.data_ = null;
+      /**
+       * @type {Error}
+       * @private
+       */
+
+      _this.error_ = null;
+      /**
+       * @type {import('./size.js').Size}
+       * @private
+       */
+
+      _this.size_ = options.size || [256, 256];
+      return _this;
+    }
+    /**
+     * Get the tile size.
+     * @return {import('./size.js').Size} Tile size.
+     */
+
+
+    _createClass(DataTile, [{
+      key: "getSize",
+      value: function getSize() {
+        return this.size_;
+      }
+      /**
+       * Get the data for the tile.
+       * @return {Data} Tile data.
+       * @api
+       */
+
+    }, {
+      key: "getData",
+      value: function getData() {
+        return this.data_;
+      }
+      /**
+       * Get any loading error.
+       * @return {Error} Loading error.
+       * @api
+       */
+
+    }, {
+      key: "getError",
+      value: function getError() {
+        return this.error_;
+      }
+      /**
+       * Load not yet loaded URI.
+       * @api
+       */
+
+    }, {
+      key: "load",
+      value: function load() {
+        if (this.state !== TileState.IDLE && this.state !== TileState.ERROR) {
+          return;
+        }
+
+        this.state = TileState.LOADING;
+        this.changed();
+        var self = this;
+        this.loader_().then(function (data) {
+          self.data_ = data;
+          self.state = TileState.LOADED;
+          self.changed();
+        })["catch"](function (error) {
+          self.error_ = error;
+          self.state = TileState.ERROR;
+          self.changed();
+        });
+      }
+    }]);
+
+    return DataTile;
+  }(Tile);
+
+  /**
+   * Data tile loading function.  The function is called with z, x, and y tile coordinates and
+   * returns {@link import("../DataTile.js").Data data} for a tile or a promise for the same.
+   * @typedef {function(number, number, number) : (import("../DataTile.js").Data|Promise<import("../DataTile.js").Data>)} Loader
+   */
+
+  /**
+   * @typedef {Object} Options
+   * @property {Loader} [loader] Data loader.  Called with z, x, and y tile coordinates.
+   * Returns {@link import("../DataTile.js").Data data} for a tile or a promise for the same.
+   * @property {import("./Source.js").AttributionLike} [attributions] Attributions.
+   * @property {boolean} [attributionsCollapsible=true] Attributions are collapsible.
+   * @property {number} [maxZoom=42] Optional max zoom level. Not used if `tileGrid` is provided.
+   * @property {number} [minZoom=0] Optional min zoom level. Not used if `tileGrid` is provided.
+   * @property {number|import("../size.js").Size} [tileSize=[256, 256]] The pixel width and height of the source tiles.
+   * This may be different than the rendered pixel size if a `tileGrid` is provided.
+   * @property {number} [gutter=0] The size in pixels of the gutter around data tiles to ignore.
+   * This allows artifacts of rendering at tile edges to be ignored.
+   * Supported data should be wider and taller than the tile size by a value of `2 x gutter`.
+   * @property {number} [maxResolution] Optional tile grid resolution at level zero. Not used if `tileGrid` is provided.
+   * @property {import("../proj.js").ProjectionLike} [projection='EPSG:3857'] Tile projection.
+   * @property {import("../tilegrid/TileGrid.js").default} [tileGrid] Tile grid.
+   * @property {boolean} [opaque=false] Whether the layer is opaque.
+   * @property {import("./Source.js").State} [state] The source state.
+   * @property {boolean} [wrapX=false] Render tiles beyond the antimeridian.
+   * @property {number} [transition] Transition time when fading in new tiles (in miliseconds).
+   * @property {number} [bandCount=4] Number of bands represented in the data.
+   * @property {boolean} [interpolate=false] Use interpolated values when resampling.  By default,
+   * the nearest neighbor is used when resampling.
+   */
+
+  /**
+   * @classdesc
+   * A source for typed array data tiles.
+   *
+   * @fires import("./Tile.js").TileSourceEvent
+   * @api
+   */
+
+  var DataTileSource = /*#__PURE__*/function (_TileSource) {
+    _inherits(DataTileSource, _TileSource);
+
+    var _super = _createSuper(DataTileSource);
+
+    /**
+     * @param {Options} options Image tile options.
+     */
+    function DataTileSource(options) {
+      var _this;
+
+      _classCallCheck(this, DataTileSource);
+
+      var projection = options.projection === undefined ? 'EPSG:3857' : options.projection;
+      var tileGrid = options.tileGrid;
+
+      if (tileGrid === undefined && projection) {
+        tileGrid = createXYZ({
+          extent: extentFromProjection(projection),
+          maxResolution: options.maxResolution,
+          maxZoom: options.maxZoom,
+          minZoom: options.minZoom,
+          tileSize: options.tileSize
+        });
+      }
+
+      _this = _super.call(this, {
+        cacheSize: 0.1,
+        // don't cache on the source
+        attributions: options.attributions,
+        attributionsCollapsible: options.attributionsCollapsible,
+        projection: projection,
+        tileGrid: tileGrid,
+        opaque: options.opaque,
+        state: options.state,
+        wrapX: options.wrapX,
+        transition: options.transition,
+        interpolate: options.interpolate
+      });
+      /**
+       * @private
+       * @type {number}
+       */
+
+      _this.gutter_ = options.gutter !== undefined ? options.gutter : 0;
+      /**
+       * @private
+       * @type {import('../size.js').Size|null}
+       */
+
+      _this.tileSize_ = options.tileSize ? toSize(options.tileSize) : null;
+      /**
+       * @private
+       * @type {Array<import('../size.js').Size>|null}
+       */
+
+      _this.tileSizes_ = null;
+      /**
+       * @private
+       * @type {!Object<string, boolean>}
+       */
+
+      _this.tileLoadingKeys_ = {};
+      /**
+       * @private
+       */
+
+      _this.loader_ = options.loader;
+      _this.handleTileChange_ = _this.handleTileChange_.bind(_assertThisInitialized(_this));
+      /**
+       * @type {number}
+       */
+
+      _this.bandCount = options.bandCount === undefined ? 4 : options.bandCount; // assume RGBA if undefined
+
+      return _this;
+    }
+    /**
+     * Set the source tile sizes.  The length of the array is expected to match the number of
+     * levels in the tile grid.
+     * @protected
+     * @param {Array<import('../size.js').Size>} tileSizes An array of tile sizes.
+     */
+
+
+    _createClass(DataTileSource, [{
+      key: "setTileSizes",
+      value: function setTileSizes(tileSizes) {
+        this.tileSizes_ = tileSizes;
+      }
+      /**
+       * Get the source tile size at the given zoom level.  This may be different than the rendered tile
+       * size.
+       * @protected
+       * @param {number} z Tile zoom level.
+       * @return {import('../size.js').Size} The source tile size.
+       */
+
+    }, {
+      key: "getTileSize",
+      value: function getTileSize(z) {
+        if (this.tileSizes_) {
+          return this.tileSizes_[z];
+        }
+
+        if (this.tileSize_) {
+          return this.tileSize_;
+        }
+
+        var tileGrid = this.getTileGrid();
+        return tileGrid ? toSize(tileGrid.getTileSize(z)) : [256, 256];
+      }
+      /**
+       * @param {import("../proj/Projection.js").default} projection Projection.
+       * @return {number} Gutter.
+       */
+
+    }, {
+      key: "getGutterForProjection",
+      value: function getGutterForProjection(projection) {
+        return this.gutter_;
+      }
+      /**
+       * @param {Loader} loader The data loader.
+       * @protected
+       */
+
+    }, {
+      key: "setLoader",
+      value: function setLoader(loader) {
+        this.loader_ = loader;
+      }
+      /**
+       * @param {number} z Tile coordinate z.
+       * @param {number} x Tile coordinate x.
+       * @param {number} y Tile coordinate y.
+       * @param {number} pixelRatio Pixel ratio.
+       * @param {import("../proj/Projection.js").default} projection Projection.
+       * @return {!DataTile} Tile.
+       */
+
+    }, {
+      key: "getTile",
+      value: function getTile(z, x, y, pixelRatio, projection) {
+        var size = this.getTileSize(z);
+        var tileCoordKey = getKeyZXY(z, x, y);
+
+        if (this.tileCache.containsKey(tileCoordKey)) {
+          return this.tileCache.get(tileCoordKey);
+        }
+
+        var sourceLoader = this.loader_;
+
+        function loader() {
+          return toPromise(function () {
+            return sourceLoader(z, x, y);
+          });
+        }
+
+        var options = Object.assign({
+          tileCoord: [z, x, y],
+          loader: loader,
+          size: size
+        }, this.tileOptions);
+        var tile = new DataTile(options);
+        tile.key = this.getKey();
+        tile.addEventListener(EventType.CHANGE, this.handleTileChange_);
+        this.tileCache.set(tileCoordKey, tile);
+        return tile;
+      }
+      /**
+       * Handle tile change events.
+       * @param {import("../events/Event.js").default} event Event.
+       */
+
+    }, {
+      key: "handleTileChange_",
+      value: function handleTileChange_(event) {
+        var tile =
+        /** @type {import("../Tile.js").default} */
+        event.target;
+        var uid = getUid(tile);
+        var tileState = tile.getState();
+        var type;
+
+        if (tileState == TileState.LOADING) {
+          this.tileLoadingKeys_[uid] = true;
+          type = TileEventType.TILELOADSTART;
+        } else if (uid in this.tileLoadingKeys_) {
+          delete this.tileLoadingKeys_[uid];
+          type = tileState == TileState.ERROR ? TileEventType.TILELOADERROR : tileState == TileState.LOADED ? TileEventType.TILELOADEND : undefined;
+        }
+
+        if (type) {
+          this.dispatchEvent(new TileSourceEvent(type, tile));
+        }
+      }
+    }]);
+
+    return DataTileSource;
+  }(TileSource);
 
   var geotiff = {exports: {}};
 
@@ -39321,6 +39821,1001 @@
   })(geotiff, geotiff.exports);
 
   /**
+   * Determine if an image type is a mask.
+   * See https://www.awaresystems.be/imaging/tiff/tifftags/newsubfiletype.html
+   * @param {GeoTIFFImage} image The image.
+   * @return {boolean} The image is a mask.
+   */
+
+  function isMask(image) {
+    var fileDirectory = image.fileDirectory;
+    var type = fileDirectory.NewSubfileType || 0;
+    return (type & 4) === 4;
+  }
+  /**
+   * @param {true|false|'auto'} preference The convertToRGB option.
+   * @param {GeoTIFFImage} image The image.
+   * @return {boolean} Use the `image.readRGB()` method.
+   */
+
+
+  function readRGB(preference, image) {
+    if (!preference) {
+      return false;
+    }
+
+    if (preference === true) {
+      return true;
+    }
+
+    if (image.getSamplesPerPixel() !== 3) {
+      return false;
+    }
+
+    var interpretation = image.fileDirectory.PhotometricInterpretation;
+    var interpretations = geotiff.exports.globals.photometricInterpretations;
+    return interpretation === interpretations.CMYK || interpretation === interpretations.YCbCr || interpretation === interpretations.CIELab || interpretation === interpretations.ICCLab;
+  }
+  /**
+   * @typedef {Object} SourceInfo
+   * @property {string} [url] URL for the source GeoTIFF.
+   * @property {Array<string>} [overviews] List of any overview URLs, only applies if the url parameter is given.
+   * @property {Blob} [blob] Blob containing the source GeoTIFF. `blob` and `url` are mutually exclusive.
+   * @property {number} [min=0] The minimum source data value.  Rendered values are scaled from 0 to 1 based on
+   * the configured min and max.  If not provided and raster statistics are available, those will be used instead.
+   * If neither are available, the minimum for the data type will be used.  To disable this behavior, set
+   * the `normalize` option to `false` in the constructor.
+   * @property {number} [max] The maximum source data value.  Rendered values are scaled from 0 to 1 based on
+   * the configured min and max.  If not provided and raster statistics are available, those will be used instead.
+   * If neither are available, the maximum for the data type will be used.  To disable this behavior, set
+   * the `normalize` option to `false` in the constructor.
+   * @property {number} [nodata] Values to discard (overriding any nodata values in the metadata).
+   * When provided, an additional alpha band will be added to the data.  Often the GeoTIFF metadata
+   * will include information about nodata values, so you should only need to set this property if
+   * you find that it is not already extracted from the metadata.
+   * @property {Array<number>} [bands] Band numbers to be read from (where the first band is `1`). If not provided, all bands will
+   * be read. For example, if a GeoTIFF has blue (1), green (2), red (3), and near-infrared (4) bands, and you only need the
+   * near-infrared band, configure `bands: [4]`.
+   */
+
+  /**
+   * @typedef {Object} GeoKeys
+   * @property {number} GTModelTypeGeoKey Model type.
+   * @property {number} GTRasterTypeGeoKey Raster type.
+   * @property {number} GeogAngularUnitsGeoKey Angular units.
+   * @property {number} GeogInvFlatteningGeoKey Inverse flattening.
+   * @property {number} GeogSemiMajorAxisGeoKey Semi-major axis.
+   * @property {number} GeographicTypeGeoKey Geographic coordinate system code.
+   * @property {number} ProjLinearUnitsGeoKey Projected linear unit code.
+   * @property {number} ProjectedCSTypeGeoKey Projected coordinate system code.
+   */
+
+  /**
+   * @typedef {import("geotiff").GeoTIFF} GeoTIFF
+   */
+
+  /**
+   * @typedef {import("geotiff").MultiGeoTIFF} MultiGeoTIFF
+   */
+
+  /**
+   * @typedef {Object} GDALMetadata
+   * @property {string} STATISTICS_MINIMUM The minimum value (as a string).
+   * @property {string} STATISTICS_MAXIMUM The maximum value (as a string).
+   */
+
+
+  var STATISTICS_MAXIMUM = 'STATISTICS_MAXIMUM';
+  var STATISTICS_MINIMUM = 'STATISTICS_MINIMUM';
+  /**
+   * @typedef {import("geotiff").GeoTIFFImage} GeoTIFFImage
+   */
+
+  var workerPool;
+
+  function getWorkerPool() {
+    if (!workerPool) {
+      workerPool = new geotiff.exports.Pool();
+    }
+
+    return workerPool;
+  }
+  /**
+   * Get the bounding box of an image.  If the image does not have an affine transform,
+   * the pixel bounds are returned.
+   * @param {GeoTIFFImage} image The image.
+   * @return {Array<number>} The image bounding box.
+   */
+
+
+  function getBoundingBox(image) {
+    try {
+      return image.getBoundingBox();
+    } catch (_) {
+      var fileDirectory = image.fileDirectory;
+      return [0, 0, fileDirectory.ImageWidth, fileDirectory.ImageLength];
+    }
+  }
+  /**
+   * Get the origin of an image.  If the image does not have an affine transform,
+   * the top-left corner of the pixel bounds is returned.
+   * @param {GeoTIFFImage} image The image.
+   * @return {Array<number>} The image origin.
+   */
+
+
+  function getOrigin(image) {
+    try {
+      return image.getOrigin().slice(0, 2);
+    } catch (_) {
+      return [0, image.fileDirectory.ImageLength];
+    }
+  }
+  /**
+   * Get the resolution of an image.  If the image does not have an affine transform,
+   * the width of the image is compared with the reference image.
+   * @param {GeoTIFFImage} image The image.
+   * @param {GeoTIFFImage} referenceImage The reference image.
+   * @return {Array<number>} The map x and y units per pixel.
+   */
+
+
+  function getResolutions(image, referenceImage) {
+    try {
+      return image.getResolution(referenceImage);
+    } catch (_) {
+      return [referenceImage.fileDirectory.ImageWidth / image.fileDirectory.ImageWidth, referenceImage.fileDirectory.ImageHeight / image.fileDirectory.ImageHeight];
+    }
+  }
+  /**
+   * @param {GeoTIFFImage} image A GeoTIFF.
+   * @return {import("../proj/Projection.js").default} The image projection.
+   */
+
+
+  function getProjection(image) {
+    var geoKeys = image.geoKeys;
+
+    if (!geoKeys) {
+      return null;
+    }
+
+    if (geoKeys.ProjectedCSTypeGeoKey) {
+      var code = 'EPSG:' + geoKeys.ProjectedCSTypeGeoKey;
+      var projection = get$2(code);
+
+      if (!projection) {
+        var units = fromCode(geoKeys.ProjLinearUnitsGeoKey);
+
+        if (units) {
+          projection = new Projection({
+            code: code,
+            units: units
+          });
+        }
+      }
+
+      return projection;
+    }
+
+    if (geoKeys.GeographicTypeGeoKey) {
+      var _code = 'EPSG:' + geoKeys.GeographicTypeGeoKey;
+
+      var _projection = get$2(_code);
+
+      if (!_projection) {
+        var _units = fromCode(geoKeys.GeogAngularUnitsGeoKey);
+
+        if (_units) {
+          _projection = new Projection({
+            code: _code,
+            units: _units
+          });
+        }
+      }
+
+      return _projection;
+    }
+
+    return null;
+  }
+  /**
+   * @param {GeoTIFF|MultiGeoTIFF} tiff A GeoTIFF.
+   * @return {Promise<Array<GeoTIFFImage>>} Resolves to a list of images.
+   */
+
+
+  function getImagesForTIFF(tiff) {
+    return tiff.getImageCount().then(function (count) {
+      var requests = new Array(count);
+
+      for (var i = 0; i < count; ++i) {
+        requests[i] = tiff.getImage(i);
+      }
+
+      return Promise.all(requests);
+    });
+  }
+  /**
+   * @param {SourceInfo} source The GeoTIFF source.
+   * @param {Object} options Options for the GeoTIFF source.
+   * @return {Promise<Array<GeoTIFFImage>>} Resolves to a list of images.
+   */
+
+
+  function getImagesForSource(source, options) {
+    var request;
+
+    if (source.blob) {
+      request = geotiff.exports.fromBlob(source.blob);
+    } else if (source.overviews) {
+      request = geotiff.exports.fromUrls(source.url, source.overviews, options);
+    } else {
+      request = geotiff.exports.fromUrl(source.url, options);
+    }
+
+    return request.then(getImagesForTIFF);
+  }
+  /**
+   * @param {number|Array<number>|Array<Array<number>>} expected Expected value.
+   * @param {number|Array<number>|Array<Array<number>>} got Actual value.
+   * @param {number} tolerance Accepted tolerance in fraction of expected between expected and got.
+   * @param {string} message The error message.
+   * @param {function(Error):void} rejector A function to be called with any error.
+   */
+
+
+  function assertEqual(expected, got, tolerance, message, rejector) {
+    if (Array.isArray(expected)) {
+      var length = expected.length;
+
+      if (!Array.isArray(got) || length != got.length) {
+        var error = new Error(message);
+        rejector(error);
+        throw error;
+      }
+
+      for (var i = 0; i < length; ++i) {
+        assertEqual(expected[i], got[i], tolerance, message, rejector);
+      }
+
+      return;
+    }
+
+    got =
+    /** @type {number} */
+    got;
+
+    if (Math.abs(expected - got) > tolerance * expected) {
+      throw new Error(message);
+    }
+  }
+  /**
+   * @param {Array} array The data array.
+   * @return {number} The minimum value.
+   */
+
+
+  function getMinForDataType(array) {
+    if (array instanceof Int8Array) {
+      return -128;
+    }
+
+    if (array instanceof Int16Array) {
+      return -32768;
+    }
+
+    if (array instanceof Int32Array) {
+      return -2147483648;
+    }
+
+    if (array instanceof Float32Array) {
+      return 1.2e-38;
+    }
+
+    return 0;
+  }
+  /**
+   * @param {Array} array The data array.
+   * @return {number} The maximum value.
+   */
+
+
+  function getMaxForDataType(array) {
+    if (array instanceof Int8Array) {
+      return 127;
+    }
+
+    if (array instanceof Uint8Array) {
+      return 255;
+    }
+
+    if (array instanceof Uint8ClampedArray) {
+      return 255;
+    }
+
+    if (array instanceof Int16Array) {
+      return 32767;
+    }
+
+    if (array instanceof Uint16Array) {
+      return 65535;
+    }
+
+    if (array instanceof Int32Array) {
+      return 2147483647;
+    }
+
+    if (array instanceof Uint32Array) {
+      return 4294967295;
+    }
+
+    if (array instanceof Float32Array) {
+      return 3.4e38;
+    }
+
+    return 255;
+  }
+  /**
+   * @typedef {Object} GeoTIFFSourceOptions
+   * @property {boolean} [forceXHR=false] Whether to force the usage of the browsers XMLHttpRequest API.
+   * @property {Object<string, string>} [headers] additional key-value pairs of headers to be passed with each request. Key is the header name, value the header value.
+   * @property {string} [credentials] How credentials shall be handled. See
+   * https://developer.mozilla.org/en-US/docs/Web/API/fetch for reference and possible values
+   * @property {number} [maxRanges] The maximum amount of ranges to request in a single multi-range request.
+   * By default only a single range is used.
+   * @property {boolean} [allowFullFile=false] Whether or not a full file is accepted when only a portion is
+   * requested. Only use this when you know the source image to be small enough to fit in memory.
+   * @property {number} [blockSize=65536] The block size to use.
+   * @property {number} [cacheSize=100] The number of blocks that shall be held in a LRU cache.
+   */
+
+  /**
+   * @typedef {Object} Options
+   * @property {Array<SourceInfo>} sources List of information about GeoTIFF sources.
+   * Multiple sources can be combined when their resolution sets are equal after applying a scale.
+   * The list of sources defines a mapping between input bands as they are read from each GeoTIFF and
+   * the output bands that are provided by data tiles. To control which bands to read from each GeoTIFF,
+   * use the {@link import("./GeoTIFF.js").SourceInfo bands} property. If, for example, you specify two
+   * sources, one with 3 bands and {@link import("./GeoTIFF.js").SourceInfo nodata} configured, and
+   * another with 1 band, the resulting data tiles will have 5 bands: 3 from the first source, 1 alpha
+   * band from the first source, and 1 band from the second source.
+   * @property {GeoTIFFSourceOptions} [sourceOptions] Additional options to be passed to [geotiff.js](https://geotiffjs.github.io/geotiff.js/module-geotiff.html)'s `fromUrl` or `fromUrls` methods.
+   * @property {true|false|'auto'} [convertToRGB=false] By default, bands from the sources are read as-is. When
+   * reading GeoTIFFs with the purpose of displaying them as RGB images, setting this to `true` will
+   * convert other color spaces (YCbCr, CMYK) to RGB.  Setting the option to `'auto'` will make it so CMYK, YCbCr,
+   * CIELab, and ICCLab images will automatically be converted to RGB.
+   * @property {boolean} [normalize=true] By default, the source data is normalized to values between
+   * 0 and 1 with scaling factors based on the raster statistics or `min` and `max` properties of each source.
+   * If instead you want to work with the raw values in a style expression, set this to `false`.  Setting this option
+   * to `false` will make it so any `min` and `max` properties on sources are ignored.
+   * @property {boolean} [opaque=false] Whether the layer is opaque.
+   * @property {number} [transition=250] Duration of the opacity transition for rendering.
+   * To disable the opacity transition, pass `transition: 0`.
+   * @property {boolean} [wrapX=false] Render tiles beyond the tile grid extent.
+   * @property {boolean} [interpolate=true] Use interpolated values when resampling.  By default,
+   * the linear interpolation is used to resample the data.  If false, nearest neighbor is used.
+   */
+
+  /**
+   * @classdesc
+   * A source for working with GeoTIFF data.
+   * **Note for users of the full build**: The `GeoTIFF` source requires the
+   * [geotiff.js](https://github.com/geotiffjs/geotiff.js) library to be loaded as well.
+   *
+   * @api
+   */
+
+
+  var GeoTIFFSource = /*#__PURE__*/function (_DataTile) {
+    _inherits(GeoTIFFSource, _DataTile);
+
+    var _super = _createSuper(GeoTIFFSource);
+
+    /**
+     * @param {Options} options Data tile options.
+     */
+    function GeoTIFFSource(options) {
+      var _this;
+
+      _classCallCheck(this, GeoTIFFSource);
+
+      _this = _super.call(this, {
+        state: 'loading',
+        tileGrid: null,
+        projection: null,
+        opaque: options.opaque,
+        transition: options.transition,
+        interpolate: options.interpolate !== false,
+        wrapX: options.wrapX
+      });
+      /**
+       * @type {Array<SourceInfo>}
+       * @private
+       */
+
+      _this.sourceInfo_ = options.sources;
+      var numSources = _this.sourceInfo_.length;
+      /**
+       * @type {Object}
+       * @private
+       */
+
+      _this.sourceOptions_ = options.sourceOptions;
+      /**
+       * @type {Array<Array<GeoTIFFImage>>}
+       * @private
+       */
+
+      _this.sourceImagery_ = new Array(numSources);
+      /**
+       * @type {Array<Array<GeoTIFFImage>>}
+       * @private
+       */
+
+      _this.sourceMasks_ = new Array(numSources);
+      /**
+       * @type {Array<number>}
+       * @private
+       */
+
+      _this.resolutionFactors_ = new Array(numSources);
+      /**
+       * @type {Array<number>}
+       * @private
+       */
+
+      _this.samplesPerPixel_;
+      /**
+       * @type {Array<Array<number>>}
+       * @private
+       */
+
+      _this.nodataValues_;
+      /**
+       * @type {Array<Array<GDALMetadata>>}
+       * @private
+       */
+
+      _this.metadata_;
+      /**
+       * @type {boolean}
+       * @private
+       */
+
+      _this.normalize_ = options.normalize !== false;
+      /**
+       * @type {boolean}
+       * @private
+       */
+
+      _this.addAlpha_ = false;
+      /**
+       * @type {Error}
+       * @private
+       */
+
+      _this.error_ = null;
+      /**
+       * @type {true|false|'auto'}
+       */
+
+      _this.convertToRGB_ = options.convertToRGB || false;
+
+      _this.setKey(_this.sourceInfo_.map(function (source) {
+        return source.url;
+      }).join(','));
+
+      var self = _assertThisInitialized(_this);
+
+      var requests = new Array(numSources);
+
+      for (var i = 0; i < numSources; ++i) {
+        requests[i] = getImagesForSource(_this.sourceInfo_[i], _this.sourceOptions_);
+      }
+
+      Promise.all(requests).then(function (sources) {
+        self.configure_(sources);
+      })["catch"](function (error) {
+        console.error(error); // eslint-disable-line no-console
+
+        self.error_ = error;
+        self.setState('error');
+      });
+      return _this;
+    }
+    /**
+     * @return {Error} A source loading error. When the source state is `error`, use this function
+     * to get more information about the error. To debug a faulty configuration, you may want to use
+     * a listener like
+     * ```js
+     * geotiffSource.on('change', () => {
+     *   if (geotiffSource.getState() === 'error') {
+     *     console.error(geotiffSource.getError());
+     *   }
+     * });
+     * ```
+     */
+
+
+    _createClass(GeoTIFFSource, [{
+      key: "getError",
+      value: function getError() {
+        return this.error_;
+      }
+      /**
+       * Configure the tile grid based on images within the source GeoTIFFs.  Each GeoTIFF
+       * must have the same internal tiled structure.
+       * @param {Array<Array<GeoTIFFImage>>} sources Each source is a list of images
+       * from a single GeoTIFF.
+       * @private
+       */
+
+    }, {
+      key: "configure_",
+      value: function configure_(sources) {
+        var _this2 = this;
+
+        var extent;
+        var origin;
+        var commonRenderTileSizes;
+        var commonSourceTileSizes;
+        var resolutions;
+        var samplesPerPixel = new Array(sources.length);
+        var nodataValues = new Array(sources.length);
+        var metadata = new Array(sources.length);
+        var minZoom = 0;
+        var sourceCount = sources.length;
+
+        var _loop = function _loop(sourceIndex) {
+          var images = [];
+          var masks = [];
+          sources[sourceIndex].forEach(function (item) {
+            if (isMask(item)) {
+              masks.push(item);
+            } else {
+              images.push(item);
+            }
+          });
+          var imageCount = images.length;
+
+          if (masks.length > 0 && masks.length !== imageCount) {
+            throw new Error("Expected one mask per image found ".concat(masks.length, " masks and ").concat(imageCount, " images"));
+          }
+
+          var sourceExtent = void 0;
+          var sourceOrigin = void 0;
+          var sourceTileSizes = new Array(imageCount);
+          var renderTileSizes = new Array(imageCount);
+          var sourceResolutions = new Array(imageCount);
+          nodataValues[sourceIndex] = new Array(imageCount);
+          metadata[sourceIndex] = new Array(imageCount);
+
+          for (var _imageIndex = 0; _imageIndex < imageCount; ++_imageIndex) {
+            var _image = images[_imageIndex];
+
+            var nodataValue = _image.getGDALNoData();
+
+            metadata[sourceIndex][_imageIndex] = _image.getGDALMetadata(0);
+            nodataValues[sourceIndex][_imageIndex] = nodataValue;
+            var wantedSamples = _this2.sourceInfo_[sourceIndex].bands;
+            samplesPerPixel[sourceIndex] = wantedSamples ? wantedSamples.length : _image.getSamplesPerPixel();
+            var level = imageCount - (_imageIndex + 1);
+
+            if (!sourceExtent) {
+              sourceExtent = getBoundingBox(_image);
+            }
+
+            if (!sourceOrigin) {
+              sourceOrigin = getOrigin(_image);
+            }
+
+            var imageResolutions = getResolutions(_image, images[0]);
+            sourceResolutions[level] = imageResolutions[0];
+            var sourceTileSize = [_image.getTileWidth(), _image.getTileHeight()];
+            sourceTileSizes[level] = sourceTileSize;
+            var aspectRatio = imageResolutions[0] / Math.abs(imageResolutions[1]);
+            renderTileSizes[level] = [sourceTileSize[0], sourceTileSize[1] / aspectRatio];
+          }
+
+          if (!extent) {
+            extent = sourceExtent;
+          } else {
+            getIntersection(extent, sourceExtent, extent);
+          }
+
+          if (!origin) {
+            origin = sourceOrigin;
+          } else {
+            var message = "Origin mismatch for source ".concat(sourceIndex, ", got [").concat(sourceOrigin, "] but expected [").concat(origin, "]");
+            assertEqual(origin, sourceOrigin, 0, message, _this2.viewRejector);
+          }
+
+          if (!resolutions) {
+            resolutions = sourceResolutions;
+            _this2.resolutionFactors_[sourceIndex] = 1;
+          } else {
+            if (resolutions.length - minZoom > sourceResolutions.length) {
+              minZoom = resolutions.length - sourceResolutions.length;
+            }
+
+            var resolutionFactor = resolutions[resolutions.length - 1] / sourceResolutions[sourceResolutions.length - 1];
+            _this2.resolutionFactors_[sourceIndex] = resolutionFactor;
+            var scaledSourceResolutions = sourceResolutions.map(function (resolution) {
+              return resolution *= resolutionFactor;
+            });
+
+            var _message = "Resolution mismatch for source ".concat(sourceIndex, ", got [").concat(scaledSourceResolutions, "] but expected [").concat(resolutions, "]");
+
+            assertEqual(resolutions.slice(minZoom, resolutions.length), scaledSourceResolutions, 0.02, _message, _this2.viewRejector);
+          }
+
+          if (!commonRenderTileSizes) {
+            commonRenderTileSizes = renderTileSizes;
+          } else {
+            assertEqual(commonRenderTileSizes.slice(minZoom, commonRenderTileSizes.length), renderTileSizes, 0.01, "Tile size mismatch for source ".concat(sourceIndex), _this2.viewRejector);
+          }
+
+          if (!commonSourceTileSizes) {
+            commonSourceTileSizes = sourceTileSizes;
+          } else {
+            assertEqual(commonSourceTileSizes.slice(minZoom, commonSourceTileSizes.length), sourceTileSizes, 0, "Tile size mismatch for source ".concat(sourceIndex), _this2.viewRejector);
+          }
+
+          _this2.sourceImagery_[sourceIndex] = images.reverse();
+          _this2.sourceMasks_[sourceIndex] = masks.reverse();
+        };
+
+        for (var sourceIndex = 0; sourceIndex < sourceCount; ++sourceIndex) {
+          _loop(sourceIndex);
+        }
+
+        for (var i = 0, ii = this.sourceImagery_.length; i < ii; ++i) {
+          var sourceImagery = this.sourceImagery_[i];
+
+          while (sourceImagery.length < resolutions.length) {
+            sourceImagery.unshift(undefined);
+          }
+        }
+
+        if (!this.getProjection()) {
+          var firstSource = sources[0];
+
+          for (var _i = firstSource.length - 1; _i >= 0; --_i) {
+            var image = firstSource[_i];
+            var projection = getProjection(image);
+
+            if (projection) {
+              this.projection = projection;
+              break;
+            }
+          }
+        }
+
+        this.samplesPerPixel_ = samplesPerPixel;
+        this.nodataValues_ = nodataValues;
+        this.metadata_ = metadata; // decide if we need to add an alpha band to handle nodata
+
+        outer: for (var _sourceIndex = 0; _sourceIndex < sourceCount; ++_sourceIndex) {
+          // option 1: source is configured with a nodata value
+          if (this.sourceInfo_[_sourceIndex].nodata !== undefined) {
+            this.addAlpha_ = true;
+            break;
+          }
+
+          if (this.sourceMasks_[_sourceIndex].length) {
+            this.addAlpha_ = true;
+            break;
+          }
+
+          var values = nodataValues[_sourceIndex]; // option 2: check image metadata for limited bands
+
+          var bands = this.sourceInfo_[_sourceIndex].bands;
+
+          if (bands) {
+            for (var _i2 = 0; _i2 < bands.length; ++_i2) {
+              if (values[bands[_i2] - 1] !== null) {
+                this.addAlpha_ = true;
+                break outer;
+              }
+            }
+
+            continue;
+          } // option 3: check image metadata for all bands
+
+
+          for (var imageIndex = 0; imageIndex < values.length; ++imageIndex) {
+            if (values[imageIndex] !== null) {
+              this.addAlpha_ = true;
+              break outer;
+            }
+          }
+        }
+
+        var bandCount = this.addAlpha_ ? 1 : 0;
+
+        for (var _sourceIndex2 = 0; _sourceIndex2 < sourceCount; ++_sourceIndex2) {
+          bandCount += samplesPerPixel[_sourceIndex2];
+        }
+
+        this.bandCount = bandCount;
+        var tileGrid = new TileGrid({
+          extent: extent,
+          minZoom: minZoom,
+          origin: origin,
+          resolutions: resolutions,
+          tileSizes: commonRenderTileSizes
+        });
+        this.tileGrid = tileGrid;
+        this.setTileSizes(commonSourceTileSizes);
+        this.setLoader(this.loadTile_.bind(this));
+        this.setState('ready');
+        var zoom = 0;
+
+        if (resolutions.length === 1) {
+          resolutions = [resolutions[0] * 2, resolutions[0]];
+          zoom = 1;
+        }
+
+        this.viewResolver({
+          showFullExtent: true,
+          projection: this.projection,
+          resolutions: resolutions,
+          center: toUserCoordinate(getCenter(extent), this.projection),
+          extent: toUserExtent(extent, this.projection),
+          zoom: zoom
+        });
+      }
+      /**
+       * @param {number} z The z tile index.
+       * @param {number} x The x tile index.
+       * @param {number} y The y tile index.
+       * @return {Promise} The composed tile data.
+       * @private
+       */
+
+    }, {
+      key: "loadTile_",
+      value: function loadTile_(z, x, y) {
+        var _this3 = this;
+
+        var sourceTileSize = this.getTileSize(z);
+        var sourceCount = this.sourceImagery_.length;
+        var requests = new Array(sourceCount * 2);
+        var nodataValues = this.nodataValues_;
+        var sourceInfo = this.sourceInfo_;
+        var pool = getWorkerPool();
+
+        var _loop2 = function _loop2(sourceIndex) {
+          var source = sourceInfo[sourceIndex];
+          var resolutionFactor = _this3.resolutionFactors_[sourceIndex];
+          var pixelBounds = [Math.round(x * (sourceTileSize[0] * resolutionFactor)), Math.round(y * (sourceTileSize[1] * resolutionFactor)), Math.round((x + 1) * (sourceTileSize[0] * resolutionFactor)), Math.round((y + 1) * (sourceTileSize[1] * resolutionFactor))];
+          var image = _this3.sourceImagery_[sourceIndex][z];
+          var samples = void 0;
+
+          if (source.bands) {
+            samples = source.bands.map(function (bandNumber) {
+              return bandNumber - 1;
+            });
+          }
+          /** @type {number|Array<number>} */
+
+
+          var fillValue = void 0;
+
+          if ('nodata' in source && source.nodata !== null) {
+            fillValue = source.nodata;
+          } else {
+            if (!samples) {
+              fillValue = nodataValues[sourceIndex];
+            } else {
+              fillValue = samples.map(function (sampleIndex) {
+                return nodataValues[sourceIndex][sampleIndex];
+              });
+            }
+          }
+
+          var readOptions = {
+            window: pixelBounds,
+            width: sourceTileSize[0],
+            height: sourceTileSize[1],
+            samples: samples,
+            fillValue: fillValue,
+            pool: pool,
+            interleave: false
+          };
+
+          if (readRGB(_this3.convertToRGB_, image)) {
+            requests[sourceIndex] = image.readRGB(readOptions);
+          } else {
+            requests[sourceIndex] = image.readRasters(readOptions);
+          } // requests after `sourceCount` are for mask data (if any)
+
+
+          var maskIndex = sourceCount + sourceIndex;
+          var mask = _this3.sourceMasks_[sourceIndex][z];
+
+          if (!mask) {
+            requests[maskIndex] = Promise.resolve(null);
+            return "continue";
+          }
+
+          requests[maskIndex] = mask.readRasters({
+            window: pixelBounds,
+            width: sourceTileSize[0],
+            height: sourceTileSize[1],
+            samples: [0],
+            pool: pool,
+            interleave: false
+          });
+        };
+
+        for (var sourceIndex = 0; sourceIndex < sourceCount; ++sourceIndex) {
+          var _ret = _loop2(sourceIndex);
+
+          if (_ret === "continue") continue;
+        }
+
+        return Promise.all(requests).then(this.composeTile_.bind(this, sourceTileSize))["catch"](function (error) {
+          console.error(error); // eslint-disable-line no-console
+
+          throw error;
+        });
+      }
+      /**
+       * @param {import("../size.js").Size} sourceTileSize The source tile size.
+       * @param {Array} sourceSamples The source samples.
+       * @return {import("../DataTile.js").Data} The composed tile data.
+       * @private
+       */
+
+    }, {
+      key: "composeTile_",
+      value: function composeTile_(sourceTileSize, sourceSamples) {
+        var metadata = this.metadata_;
+        var sourceInfo = this.sourceInfo_;
+        var sourceCount = this.sourceImagery_.length;
+        var bandCount = this.bandCount;
+        var samplesPerPixel = this.samplesPerPixel_;
+        var nodataValues = this.nodataValues_;
+        var normalize = this.normalize_;
+        var addAlpha = this.addAlpha_;
+        var pixelCount = sourceTileSize[0] * sourceTileSize[1];
+        var dataLength = pixelCount * bandCount;
+        /** @type {Uint8Array|Float32Array} */
+
+        var data;
+
+        if (normalize) {
+          data = new Uint8Array(dataLength);
+        } else {
+          data = new Float32Array(dataLength);
+        }
+
+        var dataIndex = 0;
+
+        for (var pixelIndex = 0; pixelIndex < pixelCount; ++pixelIndex) {
+          var transparent = addAlpha;
+
+          for (var sourceIndex = 0; sourceIndex < sourceCount; ++sourceIndex) {
+            var source = sourceInfo[sourceIndex];
+            var min = source.min;
+            var max = source.max;
+            var gain = void 0,
+                bias = void 0;
+
+            if (normalize) {
+              var stats = metadata[sourceIndex][0];
+
+              if (min === undefined) {
+                if (stats && STATISTICS_MINIMUM in stats) {
+                  min = parseFloat(stats[STATISTICS_MINIMUM]);
+                } else {
+                  min = getMinForDataType(sourceSamples[sourceIndex][0]);
+                }
+              }
+
+              if (max === undefined) {
+                if (stats && STATISTICS_MAXIMUM in stats) {
+                  max = parseFloat(stats[STATISTICS_MAXIMUM]);
+                } else {
+                  max = getMaxForDataType(sourceSamples[sourceIndex][0]);
+                }
+              }
+
+              gain = 255 / (max - min);
+              bias = -min * gain;
+            }
+
+            for (var sampleIndex = 0; sampleIndex < samplesPerPixel[sourceIndex]; ++sampleIndex) {
+              var sourceValue = sourceSamples[sourceIndex][sampleIndex][pixelIndex];
+              var value = void 0;
+
+              if (normalize) {
+                value = clamp(gain * sourceValue + bias, 0, 255);
+              } else {
+                value = sourceValue;
+              }
+
+              if (!addAlpha) {
+                data[dataIndex] = value;
+              } else {
+                var nodata = source.nodata;
+
+                if (nodata === undefined) {
+                  var bandIndex = void 0;
+
+                  if (source.bands) {
+                    bandIndex = source.bands[sampleIndex] - 1;
+                  } else {
+                    bandIndex = sampleIndex;
+                  }
+
+                  nodata = nodataValues[sourceIndex][bandIndex];
+                }
+
+                var nodataIsNaN = isNaN(nodata);
+
+                if (!nodataIsNaN && sourceValue !== nodata || nodataIsNaN && !isNaN(sourceValue)) {
+                  transparent = false;
+                  data[dataIndex] = value;
+                }
+              }
+
+              dataIndex++;
+            }
+
+            if (!transparent) {
+              var maskIndex = sourceCount + sourceIndex;
+              var mask = sourceSamples[maskIndex];
+
+              if (mask && !mask[0][pixelIndex]) {
+                transparent = true;
+              }
+            }
+          }
+
+          if (addAlpha) {
+            if (!transparent) {
+              data[dataIndex] = 255;
+            }
+
+            dataIndex++;
+          }
+        }
+
+        return data;
+      }
+    }]);
+
+    return GeoTIFFSource;
+  }(DataTileSource);
+  /**
+   * Get a promise for view properties based on the source.  Use the result of this function
+   * as the `view` option in a map constructor.
+   *
+   *     const source = new GeoTIFF(options);
+   *
+   *     const map = new Map({
+   *       target: 'map',
+   *       layers: [
+   *         new TileLayer({
+   *           source: source,
+   *         }),
+   *       ],
+   *       view: source.getView(),
+   *     });
+   *
+   * @function
+   * @return {Promise<import("../View.js").ViewOptions>} A promise for view-related properties.
+   * @api
+   *
+   */
+
+
+  GeoTIFFSource.prototype.getView;
+
+  /**
    * The attribution containing a link to the OpenStreetMap Copyright and License
    * page.
    * @const
@@ -39649,13 +41144,13 @@
    * @type {CanvasRenderingContext2D}
    */
 
-  var pixelContext = null;
+  var pixelContext$1 = null;
 
-  function createPixelContext() {
+  function createPixelContext$1() {
     var canvas = document.createElement('canvas');
     canvas.width = 1;
     canvas.height = 1;
-    pixelContext = canvas.getContext('2d');
+    pixelContext$1 = canvas.getContext('2d');
   }
   /**
    * @abstract
@@ -39697,7 +41192,7 @@
        * @type {import("../../transform.js").Transform}
        */
 
-      _this.tempTransform = create();
+      _this.tempTransform = create$1();
       /**
        * The transform for rendered pixels to viewport CSS pixels.  This transform must
        * be set when rendering a frame and may be used by other functions after rendering.
@@ -39705,7 +41200,7 @@
        * @type {import("../../transform.js").Transform}
        */
 
-      _this.pixelTransform = create();
+      _this.pixelTransform = create$1();
       /**
        * The transform for viewport CSS pixels to rendered pixels.  This transform must
        * be set when rendering a frame and may be used by other functions after rendering.
@@ -39713,7 +41208,7 @@
        * @type {import("../../transform.js").Transform}
        */
 
-      _this.inversePixelTransform = create();
+      _this.inversePixelTransform = create$1();
       /**
        * @type {CanvasRenderingContext2D}
        */
@@ -39749,18 +41244,18 @@
     _createClass(CanvasLayerRenderer, [{
       key: "getImageData",
       value: function getImageData(image, col, row) {
-        if (!pixelContext) {
-          createPixelContext();
+        if (!pixelContext$1) {
+          createPixelContext$1();
         }
 
-        pixelContext.clearRect(0, 0, 1, 1);
+        pixelContext$1.clearRect(0, 0, 1, 1);
         var data;
 
         try {
-          pixelContext.drawImage(image, col, row, 1, 1, 0, 0, 1, 1);
-          data = pixelContext.getImageData(0, 0, 1, 1).data;
+          pixelContext$1.drawImage(image, col, row, 1, 1, 0, 0, 1, 1);
+          data = pixelContext$1.getImageData(0, 0, 1, 1).data;
         } catch (err) {
-          pixelContext = null;
+          pixelContext$1 = null;
           return null;
         }
 
@@ -47285,7 +48780,7 @@
        * @type {!import("../../transform.js").Transform}
        */
 
-      this.renderedTransform_ = create();
+      this.renderedTransform_ = create$1();
       /**
        * @protected
        * @type {Array<*>}
@@ -47538,7 +49033,7 @@
         var transform;
 
         if (rotation !== 0) {
-          transform = compose(create(), centerX, centerY, 1, 1, rotation, -centerX, -centerY);
+          transform = compose(create$1(), centerX, centerY, 1, 1, rotation, -centerX, -centerY);
           apply(transform, p1);
           apply(transform, p2);
           apply(transform, p3);
@@ -48392,7 +49887,7 @@
        * @type {import("../../transform.js").Transform}
        */
 
-      this.hitDetectionTransform_ = create();
+      this.hitDetectionTransform_ = create$1();
       this.createExecutors_(allInstructions);
     }
     /**
@@ -48946,7 +50441,7 @@
        * @type {import("../../transform.js").Transform}
        */
 
-      _this.tmpLocalTransform_ = create();
+      _this.tmpLocalTransform_ = create$1();
       return _this;
     }
     /**
@@ -50571,7 +52066,7 @@
           this.context.globalAlpha = this.opacity_;
           this.context.drawImage(this.compositionContext_.canvas, 0, 0);
           this.context.globalAlpha = alpha;
-          releaseCanvas(this.compositionContext_);
+          releaseCanvas$1(this.compositionContext_);
           canvasPool.push(this.compositionContext_.canvas);
           this.compositionContext_ = null;
         }
@@ -51061,6 +52556,1910 @@
   new Stroke({
     color: 'rgba(0,0,0,0.2)'
   });
+
+  /**
+   * @module ol/webgl
+   */
+  /**
+   * Constants taken from goog.webgl
+   */
+
+  /**
+   * Used by {@link module:ol/webgl/Helper~WebGLHelper} for buffers containing vertices data, such as
+   * position, color, texture coordinate, etc. These vertices are then referenced by an index buffer
+   * to be drawn on screen (see {@link module:ol/webgl.ELEMENT_ARRAY_BUFFER}).
+   * @const
+   * @type {number}
+   * @api
+   */
+
+  var ARRAY_BUFFER = 0x8892;
+  /**
+   * Used by {@link module:ol/webgl/Helper~WebGLHelper} for buffers containing indices data.
+   * Index buffers are essentially lists of references to vertices defined in a vertex buffer
+   * (see {@link module:ol/webgl.ARRAY_BUFFER}), and define the primitives (triangles) to be drawn.
+   * @const
+   * @type {number}
+   * @api
+   */
+
+  var ELEMENT_ARRAY_BUFFER = 0x8893;
+  /**
+   * Used by {link module:ol/webgl/Buffer~WebGLArrayBuffer}.
+   * @const
+   * @type {number}
+   * @api
+   */
+
+  var STREAM_DRAW = 0x88e0;
+  /**
+   * Used by {link module:ol/webgl/Buffer~WebGLArrayBuffer}.
+   * @const
+   * @type {number}
+   * @api
+   */
+
+  var STATIC_DRAW = 0x88e4;
+  /**
+   * Used by {link module:ol/webgl/Buffer~WebGLArrayBuffer}.
+   * @const
+   * @type {number}
+   * @api
+   */
+
+  var DYNAMIC_DRAW = 0x88e8;
+  /**
+   * @const
+   * @type {number}
+   */
+
+  var UNSIGNED_BYTE = 0x1401;
+  /**
+   * @const
+   * @type {number}
+   */
+
+  var UNSIGNED_SHORT = 0x1403;
+  /**
+   * @const
+   * @type {number}
+   */
+
+  var UNSIGNED_INT = 0x1405;
+  /**
+   * @const
+   * @type {number}
+   */
+
+  var FLOAT = 0x1406;
+  /** end of goog.webgl constants
+   */
+
+  /**
+   * @const
+   * @type {Array<string>}
+   */
+
+  var CONTEXT_IDS = ['experimental-webgl', 'webgl', 'webkit-3d', 'moz-webgl'];
+  /**
+   * @param {HTMLCanvasElement} canvas Canvas.
+   * @param {Object} [attributes] Attributes.
+   * @return {WebGLRenderingContext} WebGL rendering context.
+   */
+
+  function getContext(canvas, attributes) {
+    attributes = Object.assign({
+      preserveDrawingBuffer: true,
+      antialias: SAFARI_BUG_237906 ? false : true // https://bugs.webkit.org/show_bug.cgi?id=237906
+
+    }, attributes);
+    var ii = CONTEXT_IDS.length;
+
+    for (var i = 0; i < ii; ++i) {
+      try {
+        var context = canvas.getContext(CONTEXT_IDS[i], attributes);
+
+        if (context) {
+          return (
+            /** @type {!WebGLRenderingContext} */
+            context
+          );
+        }
+      } catch (e) {// pass
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Used to describe the intended usage for the data: `STATIC_DRAW`, `STREAM_DRAW`
+   * or `DYNAMIC_DRAW`.
+   * @enum {number}
+   */
+
+  var BufferUsage = {
+    STATIC_DRAW: STATIC_DRAW,
+    STREAM_DRAW: STREAM_DRAW,
+    DYNAMIC_DRAW: DYNAMIC_DRAW
+  };
+  /**
+   * @classdesc
+   * Object used to store an array of data as well as usage information for that data.
+   * Stores typed arrays internally, either Float32Array or Uint16/32Array depending on
+   * the buffer type (ARRAY_BUFFER or ELEMENT_ARRAY_BUFFER) and available extensions.
+   *
+   * To populate the array, you can either use:
+   * * A size using `#ofSize(buffer)`
+   * * An `ArrayBuffer` object using `#fromArrayBuffer(buffer)`
+   * * A plain array using `#fromArray(array)`
+   *
+   * Note:
+   * See the documentation of [WebGLRenderingContext.bufferData](https://developer.mozilla.org/en-US/docs/Web/API/WebGLRenderingContext/bufferData)
+   * for more info on buffer usage.
+   * @api
+   */
+
+  var WebGLArrayBuffer = /*#__PURE__*/function () {
+    /**
+     * @param {number} type Buffer type, either ARRAY_BUFFER or ELEMENT_ARRAY_BUFFER.
+     * @param {number} [usage] Intended usage, either `STATIC_DRAW`, `STREAM_DRAW` or `DYNAMIC_DRAW`.
+     * Default is `DYNAMIC_DRAW`.
+     */
+    function WebGLArrayBuffer(type, usage) {
+      _classCallCheck(this, WebGLArrayBuffer);
+
+      /**
+       * @private
+       * @type {Float32Array|Uint32Array}
+       */
+      this.array = null;
+      /**
+       * @private
+       * @type {number}
+       */
+
+      this.type = type;
+      assert(type === ARRAY_BUFFER || type === ELEMENT_ARRAY_BUFFER, 62);
+      /**
+       * @private
+       * @type {number}
+       */
+
+      this.usage = usage !== undefined ? usage : BufferUsage.STATIC_DRAW;
+    }
+    /**
+     * Populates the buffer with an array of the given size (all values will be zeroes).
+     * @param {number} size Array size
+     */
+
+
+    _createClass(WebGLArrayBuffer, [{
+      key: "ofSize",
+      value: function ofSize(size) {
+        this.array = new (getArrayClassForType(this.type))(size);
+      }
+      /**
+       * Populates the buffer with an array of the given size.
+       * @param {Array<number>} array Numerical array
+       */
+
+    }, {
+      key: "fromArray",
+      value: function fromArray(array) {
+        this.array = getArrayClassForType(this.type).from(array);
+      }
+      /**
+       * Populates the buffer with a raw binary array buffer.
+       * @param {ArrayBuffer} buffer Raw binary buffer to populate the array with. Note that this buffer must have been
+       * initialized for the same typed array class.
+       */
+
+    }, {
+      key: "fromArrayBuffer",
+      value: function fromArrayBuffer(buffer) {
+        this.array = new (getArrayClassForType(this.type))(buffer);
+      }
+      /**
+       * @return {number} Buffer type.
+       */
+
+    }, {
+      key: "getType",
+      value: function getType() {
+        return this.type;
+      }
+      /**
+       * Will return null if the buffer was not initialized
+       * @return {Float32Array|Uint32Array} Array.
+       */
+
+    }, {
+      key: "getArray",
+      value: function getArray() {
+        return this.array;
+      }
+      /**
+       * @return {number} Usage.
+       */
+
+    }, {
+      key: "getUsage",
+      value: function getUsage() {
+        return this.usage;
+      }
+      /**
+       * Will return 0 if the buffer is not initialized
+       * @return {number} Array size
+       */
+
+    }, {
+      key: "getSize",
+      value: function getSize() {
+        return this.array ? this.array.length : 0;
+      }
+    }]);
+
+    return WebGLArrayBuffer;
+  }();
+  /**
+   * Returns a typed array constructor based on the given buffer type
+   * @param {number} type Buffer type, either ARRAY_BUFFER or ELEMENT_ARRAY_BUFFER.
+   * @return {Float32ArrayConstructor|Uint32ArrayConstructor} The typed array class to use for this buffer.
+   */
+
+
+  function getArrayClassForType(type) {
+    switch (type) {
+      case ARRAY_BUFFER:
+        return Float32Array;
+
+      case ELEMENT_ARRAY_BUFFER:
+        return Uint32Array;
+
+      default:
+        return Float32Array;
+    }
+  }
+
+  /**
+   * @module ol/webgl/ContextEventType
+   */
+
+  /**
+   * @enum {string}
+   */
+  var ContextEventType = {
+    LOST: 'webglcontextlost',
+    RESTORED: 'webglcontextrestored'
+  };
+
+  var DEFAULT_VERTEX_SHADER = "\n  precision mediump float;\n  \n  attribute vec2 a_position;\n  varying vec2 v_texCoord;\n  varying vec2 v_screenCoord;\n  \n  uniform vec2 u_screenSize;\n   \n  void main() {\n    v_texCoord = a_position * 0.5 + 0.5;\n    v_screenCoord = v_texCoord * u_screenSize;\n    gl_Position = vec4(a_position, 0.0, 1.0);\n  }\n";
+  var DEFAULT_FRAGMENT_SHADER = "\n  precision mediump float;\n   \n  uniform sampler2D u_image;\n  uniform float u_opacity;\n   \n  varying vec2 v_texCoord;\n   \n  void main() {\n    gl_FragColor = texture2D(u_image, v_texCoord) * u_opacity;\n  }\n";
+  /**
+   * @typedef {Object} Options
+   * @property {WebGLRenderingContext} webGlContext WebGL context; mandatory.
+   * @property {number} [scaleRatio] Scale ratio; if < 1, the post process will render to a texture smaller than
+   * the main canvas that will then be sampled up (useful for saving resource on blur steps).
+   * @property {string} [vertexShader] Vertex shader source
+   * @property {string} [fragmentShader] Fragment shader source
+   * @property {Object<string,import("./Helper").UniformValue>} [uniforms] Uniform definitions for the post process step
+   */
+
+  /**
+   * @typedef {Object} UniformInternalDescription
+   * @property {import("./Helper").UniformValue} value Value
+   * @property {number} location Location
+   * @property {WebGLTexture} [texture] Texture
+   * @private
+   */
+
+  /**
+   * @classdesc
+   * This class is used to define Post Processing passes with custom shaders and uniforms.
+   * This is used internally by {@link module:ol/webgl/Helper~WebGLHelper}.
+   *
+   * Please note that the final output on the DOM canvas is expected to have premultiplied alpha, which means that
+   * a pixel which is 100% red with an opacity of 50% must have a color of (r=0.5, g=0, b=0, a=0.5).
+   * Failing to provide pixel colors with premultiplied alpha will result in render anomalies.
+   *
+   * The default post-processing pass does *not* multiply color values with alpha value, it expects color values to be
+   * premultiplied.
+   *
+   * Default shaders are shown hereafter:
+   *
+   * * Vertex shader:
+   *
+   *   ```
+   *   precision mediump float;
+   *
+   *   attribute vec2 a_position;
+   *   varying vec2 v_texCoord;
+   *   varying vec2 v_screenCoord;
+   *
+   *   uniform vec2 u_screenSize;
+   *
+   *   void main() {
+   *     v_texCoord = a_position * 0.5 + 0.5;
+   *     v_screenCoord = v_texCoord * u_screenSize;
+   *     gl_Position = vec4(a_position, 0.0, 1.0);
+   *   }
+   *   ```
+   *
+   * * Fragment shader:
+   *
+   *   ```
+   *   precision mediump float;
+   *
+   *   uniform sampler2D u_image;
+   *   uniform float u_opacity;
+   *
+   *   varying vec2 v_texCoord;
+   *
+   *   void main() {
+   *     gl_FragColor = texture2D(u_image, v_texCoord) * u_opacity;
+   *   }
+   *   ```
+   *
+   * @api
+   */
+
+  var WebGLPostProcessingPass = /*#__PURE__*/function () {
+    /**
+     * @param {Options} options Options.
+     */
+    function WebGLPostProcessingPass(options) {
+      _classCallCheck(this, WebGLPostProcessingPass);
+
+      this.gl_ = options.webGlContext;
+      var gl = this.gl_;
+      this.scaleRatio_ = options.scaleRatio || 1;
+      this.renderTargetTexture_ = gl.createTexture();
+      this.renderTargetTextureSize_ = null;
+      this.frameBuffer_ = gl.createFramebuffer(); // compile the program for the frame buffer
+      // TODO: make compilation errors show up
+
+      var vertexShader = gl.createShader(gl.VERTEX_SHADER);
+      gl.shaderSource(vertexShader, options.vertexShader || DEFAULT_VERTEX_SHADER);
+      gl.compileShader(vertexShader);
+      var fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
+      gl.shaderSource(fragmentShader, options.fragmentShader || DEFAULT_FRAGMENT_SHADER);
+      gl.compileShader(fragmentShader);
+      this.renderTargetProgram_ = gl.createProgram();
+      gl.attachShader(this.renderTargetProgram_, vertexShader);
+      gl.attachShader(this.renderTargetProgram_, fragmentShader);
+      gl.linkProgram(this.renderTargetProgram_); // bind the vertices buffer for the frame buffer
+
+      this.renderTargetVerticesBuffer_ = gl.createBuffer();
+      var verticesArray = [-1, -1, 1, -1, -1, 1, 1, -1, 1, 1, -1, 1];
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.renderTargetVerticesBuffer_);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(verticesArray), gl.STATIC_DRAW);
+      this.renderTargetAttribLocation_ = gl.getAttribLocation(this.renderTargetProgram_, 'a_position');
+      this.renderTargetUniformLocation_ = gl.getUniformLocation(this.renderTargetProgram_, 'u_screenSize');
+      this.renderTargetOpacityLocation_ = gl.getUniformLocation(this.renderTargetProgram_, 'u_opacity');
+      this.renderTargetTextureLocation_ = gl.getUniformLocation(this.renderTargetProgram_, 'u_image');
+      /**
+       * Holds info about custom uniforms used in the post processing pass
+       * @type {Array<UniformInternalDescription>}
+       * @private
+       */
+
+      this.uniforms_ = [];
+      options.uniforms && Object.keys(options.uniforms).forEach(function (name) {
+        this.uniforms_.push({
+          value: options.uniforms[name],
+          location: gl.getUniformLocation(this.renderTargetProgram_, name)
+        });
+      }.bind(this));
+    }
+    /**
+     * Get the WebGL rendering context
+     * @return {WebGLRenderingContext} The rendering context.
+     * @api
+     */
+
+
+    _createClass(WebGLPostProcessingPass, [{
+      key: "getGL",
+      value: function getGL() {
+        return this.gl_;
+      }
+      /**
+       * Initialize the render target texture of the post process, make sure it is at the
+       * right size and bind it as a render target for the next draw calls.
+       * The last step to be initialized will be the one where the primitives are rendered.
+       * @param {import("../Map.js").FrameState} frameState current frame state
+       * @api
+       */
+
+    }, {
+      key: "init",
+      value: function init(frameState) {
+        var gl = this.getGL();
+        var textureSize = [gl.drawingBufferWidth * this.scaleRatio_, gl.drawingBufferHeight * this.scaleRatio_]; // rendering goes to my buffer
+
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.getFrameBuffer());
+        gl.viewport(0, 0, textureSize[0], textureSize[1]); // if size has changed: adjust canvas & render target texture
+
+        if (!this.renderTargetTextureSize_ || this.renderTargetTextureSize_[0] !== textureSize[0] || this.renderTargetTextureSize_[1] !== textureSize[1]) {
+          this.renderTargetTextureSize_ = textureSize; // create a new texture
+
+          var level = 0;
+          var internalFormat = gl.RGBA;
+          var border = 0;
+          var format = gl.RGBA;
+          var type = gl.UNSIGNED_BYTE;
+          var data = null;
+          gl.bindTexture(gl.TEXTURE_2D, this.renderTargetTexture_);
+          gl.texImage2D(gl.TEXTURE_2D, level, internalFormat, textureSize[0], textureSize[1], border, format, type, data);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); // bind the texture to the framebuffer
+
+          gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.renderTargetTexture_, 0);
+        }
+      }
+      /**
+       * Render to the next postprocessing pass (or to the canvas if final pass).
+       * @param {import("../Map.js").FrameState} frameState current frame state
+       * @param {WebGLPostProcessingPass} [nextPass] Next pass, optional
+       * @param {function(WebGLRenderingContext, import("../Map.js").FrameState):void} [preCompose] Called before composing.
+       * @param {function(WebGLRenderingContext, import("../Map.js").FrameState):void} [postCompose] Called before composing.
+       * @api
+       */
+
+    }, {
+      key: "apply",
+      value: function apply(frameState, nextPass, preCompose, postCompose) {
+        var gl = this.getGL();
+        var size = frameState.size;
+        gl.bindFramebuffer(gl.FRAMEBUFFER, nextPass ? nextPass.getFrameBuffer() : null);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, this.renderTargetTexture_);
+
+        if (!nextPass) {
+          // clear the canvas if we are the first to render to it
+          // and preserveDrawingBuffer is true
+          var canvasId = getUid(gl.canvas);
+
+          if (!frameState.renderTargets[canvasId]) {
+            var attributes = gl.getContextAttributes();
+
+            if (attributes && attributes.preserveDrawingBuffer) {
+              gl.clearColor(0.0, 0.0, 0.0, 0.0);
+              gl.clear(gl.COLOR_BUFFER_BIT);
+            }
+
+            frameState.renderTargets[canvasId] = true;
+          }
+        }
+
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+        gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.renderTargetVerticesBuffer_);
+        gl.useProgram(this.renderTargetProgram_);
+        gl.enableVertexAttribArray(this.renderTargetAttribLocation_);
+        gl.vertexAttribPointer(this.renderTargetAttribLocation_, 2, gl.FLOAT, false, 0, 0);
+        gl.uniform2f(this.renderTargetUniformLocation_, size[0], size[1]);
+        gl.uniform1i(this.renderTargetTextureLocation_, 0);
+        var opacity = frameState.layerStatesArray[frameState.layerIndex].opacity;
+        gl.uniform1f(this.renderTargetOpacityLocation_, opacity);
+        this.applyUniforms(frameState);
+
+        if (preCompose) {
+          preCompose(gl, frameState);
+        }
+
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+        if (postCompose) {
+          postCompose(gl, frameState);
+        }
+      }
+      /**
+       * @return {WebGLFramebuffer} Frame buffer
+       * @api
+       */
+
+    }, {
+      key: "getFrameBuffer",
+      value: function getFrameBuffer() {
+        return this.frameBuffer_;
+      }
+      /**
+       * Sets the custom uniforms based on what was given in the constructor.
+       * @param {import("../Map.js").FrameState} frameState Frame state.
+       * @private
+       */
+
+    }, {
+      key: "applyUniforms",
+      value: function applyUniforms(frameState) {
+        var gl = this.getGL();
+        var value;
+        var textureSlot = 1;
+        this.uniforms_.forEach(function (uniform) {
+          value = typeof uniform.value === 'function' ? uniform.value(frameState) : uniform.value; // apply value based on type
+
+          if (value instanceof HTMLCanvasElement || value instanceof ImageData) {
+            // create a texture & put data
+            if (!uniform.texture) {
+              uniform.texture = gl.createTexture();
+            }
+
+            gl.activeTexture(gl["TEXTURE".concat(textureSlot)]);
+            gl.bindTexture(gl.TEXTURE_2D, uniform.texture);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+            if (value instanceof ImageData) {
+              gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, value.width, value.height, 0, gl.UNSIGNED_BYTE, new Uint8Array(value.data));
+            } else {
+              gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, value);
+            } // fill texture slots
+
+
+            gl.uniform1i(uniform.location, textureSlot++);
+          } else if (Array.isArray(value)) {
+            switch (value.length) {
+              case 2:
+                gl.uniform2f(uniform.location, value[0], value[1]);
+                return;
+
+              case 3:
+                gl.uniform3f(uniform.location, value[0], value[1], value[2]);
+                return;
+
+              case 4:
+                gl.uniform4f(uniform.location, value[0], value[1], value[2], value[3]);
+                return;
+
+              default:
+                return;
+            }
+          } else if (typeof value === 'number') {
+            gl.uniform1f(uniform.location, value);
+          }
+        });
+      }
+    }]);
+
+    return WebGLPostProcessingPass;
+  }();
+
+  /**
+   * @module ol/vec/mat4
+   */
+
+  /**
+   * @return {Array<number>} "4x4 matrix representing a 3D identity transform."
+   */
+  function create() {
+    return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  }
+  /**
+   * @param {Array<number>} mat4 Flattened 4x4 matrix receiving the result.
+   * @param {import("../transform.js").Transform} transform Transformation matrix.
+   * @return {Array<number>} "2D transformation matrix as flattened 4x4 matrix."
+   */
+
+  function fromTransform(mat4, transform) {
+    mat4[0] = transform[0];
+    mat4[1] = transform[1];
+    mat4[4] = transform[2];
+    mat4[5] = transform[3];
+    mat4[12] = transform[4];
+    mat4[13] = transform[5];
+    return mat4;
+  }
+
+  /**
+   * Names of uniforms made available to all shaders.
+   * Please note: changing these *will* break custom shaders!
+   * @enum {string}
+   */
+
+  var DefaultUniform = {
+    PROJECTION_MATRIX: 'u_projectionMatrix',
+    OFFSET_SCALE_MATRIX: 'u_offsetScaleMatrix',
+    OFFSET_ROTATION_MATRIX: 'u_offsetRotateMatrix',
+    TIME: 'u_time',
+    ZOOM: 'u_zoom',
+    RESOLUTION: 'u_resolution',
+    SIZE_PX: 'u_sizePx',
+    PIXEL_RATIO: 'u_pixelRatio'
+  };
+  /**
+   * Attribute types, either `UNSIGNED_BYTE`, `UNSIGNED_SHORT`, `UNSIGNED_INT` or `FLOAT`
+   * Note: an attribute stored in a `Float32Array` should be of type `FLOAT`.
+   * @enum {number}
+   */
+
+  var AttributeType = {
+    UNSIGNED_BYTE: UNSIGNED_BYTE,
+    UNSIGNED_SHORT: UNSIGNED_SHORT,
+    UNSIGNED_INT: UNSIGNED_INT,
+    FLOAT: FLOAT
+  };
+  /**
+   * Description of an attribute in a buffer
+   * @typedef {Object} AttributeDescription
+   * @property {string} name Attribute name to use in shaders
+   * @property {number} size Number of components per attributes
+   * @property {AttributeType} [type] Attribute type, i.e. number of bytes used to store the value. This is
+   * determined by the class of typed array which the buffer uses (eg. `Float32Array` for a `FLOAT` attribute).
+   * Default is `FLOAT`.
+   */
+
+  /**
+   * @typedef {number|Array<number>|HTMLCanvasElement|HTMLImageElement|ImageData|import("../transform").Transform} UniformLiteralValue
+   */
+
+  /**
+   * Uniform value can be a number, array of numbers (2 to 4), canvas element or a callback returning
+   * one of the previous types.
+   * @typedef {UniformLiteralValue|function(import("../Map.js").FrameState):UniformLiteralValue} UniformValue
+   */
+
+  /**
+   * @typedef {Object} PostProcessesOptions
+   * @property {number} [scaleRatio] Scale ratio; if < 1, the post process will render to a texture smaller than
+   * the main canvas which will then be sampled up (useful for saving resource on blur steps).
+   * @property {string} [vertexShader] Vertex shader source
+   * @property {string} [fragmentShader] Fragment shader source
+   * @property {Object<string,UniformValue>} [uniforms] Uniform definitions for the post process step
+   */
+
+  /**
+   * @typedef {Object} Options
+   * @property {Object<string,UniformValue>} [uniforms] Uniform definitions; property names must match the uniform
+   * names in the provided or default shaders.
+   * @property {Array<PostProcessesOptions>} [postProcesses] Post-processes definitions
+   * @property {string} [canvasCacheKey] The cache key for the canvas.
+   */
+
+  /**
+   * @typedef {Object} UniformInternalDescription
+   * @property {string} name Name
+   * @property {UniformValue} [value] Value
+   * @property {WebGLTexture} [texture] Texture
+   * @private
+   */
+
+  /**
+   * @typedef {Object} CanvasCacheItem
+   * @property {HTMLCanvasElement} canvas Canvas element.
+   * @property {number} users The count of users of this canvas.
+   */
+
+  /**
+   * @type {Object<string,CanvasCacheItem>}
+   */
+
+  var canvasCache = {};
+  /**
+   * @param {string} key The cache key for the canvas.
+   * @return {string} The shared cache key.
+   */
+
+  function getSharedCanvasCacheKey(key) {
+    return 'shared/' + key;
+  }
+
+  var uniqueCanvasCacheKeyCount = 0;
+  /**
+   * @return {string} The unique cache key.
+   */
+
+  function getUniqueCanvasCacheKey() {
+    var key = 'unique/' + uniqueCanvasCacheKeyCount;
+    uniqueCanvasCacheKeyCount += 1;
+    return key;
+  }
+  /**
+   * @param {string} key The cache key for the canvas.
+   * @return {HTMLCanvasElement} The canvas.
+   */
+
+
+  function getCanvas(key) {
+    var cacheItem = canvasCache[key];
+
+    if (!cacheItem) {
+      var canvas = document.createElement('canvas');
+      canvas.style.position = 'absolute';
+      canvas.style.left = '0';
+      cacheItem = {
+        users: 0,
+        canvas: canvas
+      };
+      canvasCache[key] = cacheItem;
+    }
+
+    cacheItem.users += 1;
+    return cacheItem.canvas;
+  }
+  /**
+   * @param {string} key The cache key for the canvas.
+   */
+
+
+  function releaseCanvas(key) {
+    var cacheItem = canvasCache[key];
+
+    if (!cacheItem) {
+      return;
+    }
+
+    cacheItem.users -= 1;
+
+    if (cacheItem.users > 0) {
+      return;
+    }
+
+    var canvas = cacheItem.canvas;
+    var gl = getContext(canvas);
+    var extension = gl.getExtension('WEBGL_lose_context');
+
+    if (extension) {
+      extension.loseContext();
+    }
+
+    delete canvasCache[key];
+  }
+  /**
+   * @classdesc
+   * This class is intended to provide low-level functions related to WebGL rendering, so that accessing
+   * directly the WebGL API should not be required anymore.
+   *
+   * Several operations are handled by the `WebGLHelper` class:
+   *
+   * ### Define custom shaders and uniforms
+   *
+   *   *Shaders* are low-level programs executed on the GPU and written in GLSL. There are two types of shaders:
+   *
+   *   Vertex shaders are used to manipulate the position and attribute of *vertices* of rendered primitives (ie. corners of a square).
+   *   Outputs are:
+   *
+   *   * `gl_Position`: position of the vertex in screen space
+   *
+   *   * Varyings usually prefixed with `v_` are passed on to the fragment shader
+   *
+   *   Fragment shaders are used to control the actual color of the pixels drawn on screen. Their only output is `gl_FragColor`.
+   *
+   *   Both shaders can take *uniforms* or *attributes* as input. Attributes are explained later. Uniforms are common, read-only values that
+   *   can be changed at every frame and can be of type float, arrays of float or images.
+   *
+   *   Shaders must be compiled and assembled into a program like so:
+   *   ```js
+   *   // here we simply create two shaders and assemble them in a program which is then used
+   *   // for subsequent rendering calls; note how a frameState is required to set up a program,
+   *   // as several default uniforms are computed from it (projection matrix, zoom level, etc.)
+   *   const vertexShader = new WebGLVertex(VERTEX_SHADER);
+   *   const fragmentShader = new WebGLFragment(FRAGMENT_SHADER);
+   *   const program = this.context.getProgram(fragmentShader, vertexShader);
+   *   helper.useProgram(this.program, frameState);
+   *   ```
+   *
+   *   Uniforms are defined using the `uniforms` option and can either be explicit values or callbacks taking the frame state as argument.
+   *   You can also change their value along the way like so:
+   *   ```js
+   *   helper.setUniformFloatValue('u_value', valueAsNumber);
+   *   ```
+   *
+   * ### Defining post processing passes
+   *
+   *   *Post processing* describes the act of rendering primitives to a texture, and then rendering this texture to the final canvas
+   *   while applying special effects in screen space.
+   *   Typical uses are: blurring, color manipulation, depth of field, filtering...
+   *
+   *   The `WebGLHelper` class offers the possibility to define post processes at creation time using the `postProcesses` option.
+   *   A post process step accepts the following options:
+   *
+   *   * `fragmentShader` and `vertexShader`: text literals in GLSL language that will be compiled and used in the post processing step.
+   *   * `uniforms`: uniforms can be defined for the post processing steps just like for the main render.
+   *   * `scaleRatio`: allows using an intermediate texture smaller or higher than the final canvas in the post processing step.
+   *     This is typically used in blur steps to reduce the performance overhead by using an already downsampled texture as input.
+   *
+   *   The {@link module:ol/webgl/PostProcessingPass~WebGLPostProcessingPass} class is used internally, refer to its documentation for more info.
+   *
+   * ### Binding WebGL buffers and flushing data into them
+   *
+   *   Data that must be passed to the GPU has to be transferred using {@link module:ol/webgl/Buffer~WebGLArrayBuffer} objects.
+   *   A buffer has to be created only once, but must be bound every time the buffer content will be used for rendering.
+   *   This is done using {@link bindBuffer}.
+   *   When the buffer's array content has changed, the new data has to be flushed to the GPU memory; this is done using
+   *   {@link flushBufferData}. Note: this operation is expensive and should be done as infrequently as possible.
+   *
+   *   When binding an array buffer, a `target` parameter must be given: it should be either {@link module:ol/webgl.ARRAY_BUFFER}
+   *   (if the buffer contains vertices data) or {@link module:ol/webgl.ELEMENT_ARRAY_BUFFER} (if the buffer contains indices data).
+   *
+   *   Examples below:
+   *   ```js
+   *   // at initialization phase
+   *   const verticesBuffer = new WebGLArrayBuffer([], DYNAMIC_DRAW);
+   *   const indicesBuffer = new WebGLArrayBuffer([], DYNAMIC_DRAW);
+   *
+   *   // when array values have changed
+   *   helper.flushBufferData(ARRAY_BUFFER, this.verticesBuffer);
+   *   helper.flushBufferData(ELEMENT_ARRAY_BUFFER, this.indicesBuffer);
+   *
+   *   // at rendering phase
+   *   helper.bindBuffer(ARRAY_BUFFER, this.verticesBuffer);
+   *   helper.bindBuffer(ELEMENT_ARRAY_BUFFER, this.indicesBuffer);
+   *   ```
+   *
+   * ### Specifying attributes
+   *
+   *   The GPU only receives the data as arrays of numbers. These numbers must be handled differently depending on what it describes (position, texture coordinate...).
+   *   Attributes are used to specify these uses. Specify the attribute names with
+   *   {@link module:ol/webgl/Helper~WebGLHelper#enableAttributes} (see code snippet below).
+   *
+   *   Please note that you will have to specify the type and offset of the attributes in the data array. You can refer to the documentation of [WebGLRenderingContext.vertexAttribPointer](https://developer.mozilla.org/en-US/docs/Web/API/WebGLRenderingContext/vertexAttribPointer) for more explanation.
+   *   ```js
+   *   // here we indicate that the data array has the following structure:
+   *   // [posX, posY, offsetX, offsetY, texCoordU, texCoordV, posX, posY, ...]
+   *   helper.enableAttributes([
+   *     {
+   *        name: 'a_position',
+   *        size: 2
+   *     },
+   *     {
+   *       name: 'a_offset',
+   *       size: 2
+   *     },
+   *     {
+   *       name: 'a_texCoord',
+   *       size: 2
+   *     }
+   *   ])
+   *   ```
+   *
+   * ### Rendering primitives
+   *
+   *   Once all the steps above have been achieved, rendering primitives to the screen is done using {@link prepareDraw}, {@link drawElements} and {@link finalizeDraw}.
+   *   ```js
+   *   // frame preparation step
+   *   helper.prepareDraw(frameState);
+   *
+   *   // call this for every data array that has to be rendered on screen
+   *   helper.drawElements(0, this.indicesBuffer.getArray().length);
+   *
+   *   // finalize the rendering by applying post processes
+   *   helper.finalizeDraw(frameState);
+   *   ```
+   *
+   * For an example usage of this class, refer to {@link module:ol/renderer/webgl/PointsLayer~WebGLPointsLayerRenderer}.
+   */
+
+
+  var WebGLHelper = /*#__PURE__*/function (_Disposable) {
+    _inherits(WebGLHelper, _Disposable);
+
+    var _super = _createSuper(WebGLHelper);
+
+    /**
+     * @param {Options} [options] Options.
+     */
+    function WebGLHelper(options) {
+      var _this;
+
+      _classCallCheck(this, WebGLHelper);
+
+      _this = _super.call(this);
+      options = options || {};
+      /** @private */
+
+      _this.boundHandleWebGLContextLost_ = _this.handleWebGLContextLost.bind(_assertThisInitialized(_this));
+      /** @private */
+
+      _this.boundHandleWebGLContextRestored_ = _this.handleWebGLContextRestored.bind(_assertThisInitialized(_this));
+      /**
+       * @private
+       * @type {string}
+       */
+
+      _this.canvasCacheKey_ = options.canvasCacheKey ? getSharedCanvasCacheKey(options.canvasCacheKey) : getUniqueCanvasCacheKey();
+      /**
+       * @private
+       * @type {HTMLCanvasElement}
+       */
+
+      _this.canvas_ = getCanvas(_this.canvasCacheKey_);
+      /**
+       * @private
+       * @type {WebGLRenderingContext}
+       */
+
+      _this.gl_ = getContext(_this.canvas_);
+      /**
+       * @private
+       * @type {!Object<string, BufferCacheEntry>}
+       */
+
+      _this.bufferCache_ = {};
+      /**
+       * @private
+       * @type {Object<string, Object>}
+       */
+
+      _this.extensionCache_ = {};
+      /**
+       * @private
+       * @type {WebGLProgram}
+       */
+
+      _this.currentProgram_ = null;
+
+      _this.canvas_.addEventListener(ContextEventType.LOST, _this.boundHandleWebGLContextLost_);
+
+      _this.canvas_.addEventListener(ContextEventType.RESTORED, _this.boundHandleWebGLContextRestored_);
+      /**
+       * @private
+       * @type {import("../transform.js").Transform}
+       */
+
+
+      _this.offsetRotateMatrix_ = create$1();
+      /**
+       * @private
+       * @type {import("../transform.js").Transform}
+       */
+
+      _this.offsetScaleMatrix_ = create$1();
+      /**
+       * @private
+       * @type {Array<number>}
+       */
+
+      _this.tmpMat4_ = create();
+      /**
+       * @private
+       * @type {Object<string, WebGLUniformLocation>}
+       */
+
+      _this.uniformLocations_ = {};
+      /**
+       * @private
+       * @type {Object<string, number>}
+       */
+
+      _this.attribLocations_ = {};
+      /**
+       * Holds info about custom uniforms used in the post processing pass.
+       * If the uniform is a texture, the WebGL Texture object will be stored here.
+       * @type {Array<UniformInternalDescription>}
+       * @private
+       */
+
+      _this.uniforms_ = [];
+
+      if (options.uniforms) {
+        _this.setUniforms(options.uniforms);
+      }
+
+      var gl = _this.getGL();
+      /**
+       * An array of PostProcessingPass objects is kept in this variable, built from the steps provided in the
+       * options. If no post process was given, a default one is used (so as not to have to make an exception to
+       * the frame buffer logic).
+       * @type {Array<WebGLPostProcessingPass>}
+       * @private
+       */
+
+
+      _this.postProcessPasses_ = options.postProcesses ? options.postProcesses.map(function (options) {
+        return new WebGLPostProcessingPass({
+          webGlContext: gl,
+          scaleRatio: options.scaleRatio,
+          vertexShader: options.vertexShader,
+          fragmentShader: options.fragmentShader,
+          uniforms: options.uniforms
+        });
+      }) : [new WebGLPostProcessingPass({
+        webGlContext: gl
+      })];
+      /**
+       * @type {string|null}
+       * @private
+       */
+
+      _this.shaderCompileErrors_ = null;
+      /**
+       * @type {number}
+       * @private
+       */
+
+      _this.startTime_ = Date.now();
+      return _this;
+    }
+    /**
+     * @param {Object<string, UniformValue>} uniforms Uniform definitions.
+     */
+
+
+    _createClass(WebGLHelper, [{
+      key: "setUniforms",
+      value: function setUniforms(uniforms) {
+        this.uniforms_ = [];
+
+        for (var name in uniforms) {
+          this.uniforms_.push({
+            name: name,
+            value: uniforms[name]
+          });
+        }
+
+        this.uniformLocations_ = {};
+      }
+      /**
+       * @param {string} canvasCacheKey The canvas cache key.
+       * @return {boolean} The provided key matches the one this helper was constructed with.
+       */
+
+    }, {
+      key: "canvasCacheKeyMatches",
+      value: function canvasCacheKeyMatches(canvasCacheKey) {
+        return this.canvasCacheKey_ === getSharedCanvasCacheKey(canvasCacheKey);
+      }
+      /**
+       * Get a WebGL extension.  If the extension is not supported, null is returned.
+       * Extensions are cached after they are enabled for the first time.
+       * @param {string} name The extension name.
+       * @return {Object|null} The extension or null if not supported.
+       */
+
+    }, {
+      key: "getExtension",
+      value: function getExtension(name) {
+        if (name in this.extensionCache_) {
+          return this.extensionCache_[name];
+        }
+
+        var extension = this.gl_.getExtension(name);
+        this.extensionCache_[name] = extension;
+        return extension;
+      }
+      /**
+       * Just bind the buffer if it's in the cache. Otherwise create
+       * the WebGL buffer, bind it, populate it, and add an entry to
+       * the cache.
+       * @param {import("./Buffer").default} buffer Buffer.
+       */
+
+    }, {
+      key: "bindBuffer",
+      value: function bindBuffer(buffer) {
+        var gl = this.getGL();
+        var bufferKey = getUid(buffer);
+        var bufferCache = this.bufferCache_[bufferKey];
+
+        if (!bufferCache) {
+          var webGlBuffer = gl.createBuffer();
+          bufferCache = {
+            buffer: buffer,
+            webGlBuffer: webGlBuffer
+          };
+          this.bufferCache_[bufferKey] = bufferCache;
+        }
+
+        gl.bindBuffer(buffer.getType(), bufferCache.webGlBuffer);
+      }
+      /**
+       * Update the data contained in the buffer array; this is required for the
+       * new data to be rendered
+       * @param {import("./Buffer").default} buffer Buffer.
+       */
+
+    }, {
+      key: "flushBufferData",
+      value: function flushBufferData(buffer) {
+        var gl = this.getGL();
+        this.bindBuffer(buffer);
+        gl.bufferData(buffer.getType(), buffer.getArray(), buffer.getUsage());
+      }
+      /**
+       * @param {import("./Buffer.js").default} buf Buffer.
+       */
+
+    }, {
+      key: "deleteBuffer",
+      value: function deleteBuffer(buf) {
+        var gl = this.getGL();
+        var bufferKey = getUid(buf);
+        var bufferCacheEntry = this.bufferCache_[bufferKey];
+
+        if (bufferCacheEntry && !gl.isContextLost()) {
+          gl.deleteBuffer(bufferCacheEntry.webGlBuffer);
+        }
+
+        delete this.bufferCache_[bufferKey];
+      }
+      /**
+       * Clean up.
+       */
+
+    }, {
+      key: "disposeInternal",
+      value: function disposeInternal() {
+        this.canvas_.removeEventListener(ContextEventType.LOST, this.boundHandleWebGLContextLost_);
+        this.canvas_.removeEventListener(ContextEventType.RESTORED, this.boundHandleWebGLContextRestored_);
+        releaseCanvas(this.canvasCacheKey_);
+        delete this.gl_;
+        delete this.canvas_;
+      }
+      /**
+       * Clear the buffer & set the viewport to draw.
+       * Post process passes will be initialized here, the first one being bound as a render target for
+       * subsequent draw calls.
+       * @param {import("../Map.js").FrameState} frameState current frame state
+       * @param {boolean} [disableAlphaBlend] If true, no alpha blending will happen.
+       */
+
+    }, {
+      key: "prepareDraw",
+      value: function prepareDraw(frameState, disableAlphaBlend) {
+        var gl = this.getGL();
+        var canvas = this.getCanvas();
+        var size = frameState.size;
+        var pixelRatio = frameState.pixelRatio;
+        canvas.width = size[0] * pixelRatio;
+        canvas.height = size[1] * pixelRatio;
+        canvas.style.width = size[0] + 'px';
+        canvas.style.height = size[1] + 'px'; // loop backwards in post processes list
+
+        for (var i = this.postProcessPasses_.length - 1; i >= 0; i--) {
+          this.postProcessPasses_[i].init(frameState);
+        }
+
+        gl.bindTexture(gl.TEXTURE_2D, null);
+        gl.clearColor(0.0, 0.0, 0.0, 0.0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.ONE, disableAlphaBlend ? gl.ZERO : gl.ONE_MINUS_SRC_ALPHA);
+      }
+      /**
+       * Clear the render target & bind it for future draw operations.
+       * This is similar to `prepareDraw`, only post processes will not be applied.
+       * Note: the whole viewport will be drawn to the render target, regardless of its size.
+       * @param {import("../Map.js").FrameState} frameState current frame state
+       * @param {import("./RenderTarget.js").default} renderTarget Render target to draw to
+       * @param {boolean} [disableAlphaBlend] If true, no alpha blending will happen.
+       */
+
+    }, {
+      key: "prepareDrawToRenderTarget",
+      value: function prepareDrawToRenderTarget(frameState, renderTarget, disableAlphaBlend) {
+        var gl = this.getGL();
+        var size = renderTarget.getSize();
+        gl.bindFramebuffer(gl.FRAMEBUFFER, renderTarget.getFramebuffer());
+        gl.viewport(0, 0, size[0], size[1]);
+        gl.bindTexture(gl.TEXTURE_2D, renderTarget.getTexture());
+        gl.clearColor(0.0, 0.0, 0.0, 0.0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.ONE, disableAlphaBlend ? gl.ZERO : gl.ONE_MINUS_SRC_ALPHA);
+      }
+      /**
+       * Execute a draw call based on the currently bound program, texture, buffers, attributes.
+       * @param {number} start Start index.
+       * @param {number} end End index.
+       */
+
+    }, {
+      key: "drawElements",
+      value: function drawElements(start, end) {
+        var gl = this.getGL();
+        this.getExtension('OES_element_index_uint');
+        var elementType = gl.UNSIGNED_INT;
+        var elementSize = 4;
+        var numItems = end - start;
+        var offsetInBytes = start * elementSize;
+        gl.drawElements(gl.TRIANGLES, numItems, elementType, offsetInBytes);
+      }
+      /**
+       * Apply the successive post process passes which will eventually render to the actual canvas.
+       * @param {import("../Map.js").FrameState} frameState current frame state
+       * @param {function(WebGLRenderingContext, import("../Map.js").FrameState):void} [preCompose] Called before composing.
+       * @param {function(WebGLRenderingContext, import("../Map.js").FrameState):void} [postCompose] Called before composing.
+       */
+
+    }, {
+      key: "finalizeDraw",
+      value: function finalizeDraw(frameState, preCompose, postCompose) {
+        // apply post processes using the next one as target
+        for (var i = 0, ii = this.postProcessPasses_.length; i < ii; i++) {
+          if (i === ii - 1) {
+            this.postProcessPasses_[i].apply(frameState, null, preCompose, postCompose);
+          } else {
+            this.postProcessPasses_[i].apply(frameState, this.postProcessPasses_[i + 1]);
+          }
+        }
+      }
+      /**
+       * @return {HTMLCanvasElement} Canvas.
+       */
+
+    }, {
+      key: "getCanvas",
+      value: function getCanvas() {
+        return this.canvas_;
+      }
+      /**
+       * Get the WebGL rendering context
+       * @return {WebGLRenderingContext} The rendering context.
+       */
+
+    }, {
+      key: "getGL",
+      value: function getGL() {
+        return this.gl_;
+      }
+      /**
+       * Sets the default matrix uniforms for a given frame state. This is called internally in `prepareDraw`.
+       * @param {import("../Map.js").FrameState} frameState Frame state.
+       */
+
+    }, {
+      key: "applyFrameState",
+      value: function applyFrameState(frameState) {
+        var size = frameState.size;
+        var rotation = frameState.viewState.rotation;
+        var pixelRatio = frameState.pixelRatio;
+        var offsetScaleMatrix = reset(this.offsetScaleMatrix_);
+        scale$3(offsetScaleMatrix, 2 / size[0], 2 / size[1]);
+        var offsetRotateMatrix = reset(this.offsetRotateMatrix_);
+
+        if (rotation !== 0) {
+          rotate$2(offsetRotateMatrix, -rotation);
+        }
+
+        this.setUniformMatrixValue(DefaultUniform.OFFSET_SCALE_MATRIX, fromTransform(this.tmpMat4_, offsetScaleMatrix));
+        this.setUniformMatrixValue(DefaultUniform.OFFSET_ROTATION_MATRIX, fromTransform(this.tmpMat4_, offsetRotateMatrix));
+        this.setUniformFloatValue(DefaultUniform.TIME, (Date.now() - this.startTime_) * 0.001);
+        this.setUniformFloatValue(DefaultUniform.ZOOM, frameState.viewState.zoom);
+        this.setUniformFloatValue(DefaultUniform.RESOLUTION, frameState.viewState.resolution);
+        this.setUniformFloatValue(DefaultUniform.PIXEL_RATIO, pixelRatio);
+        this.setUniformFloatVec2(DefaultUniform.SIZE_PX, [size[0], size[1]]);
+      }
+      /**
+       * Sets the custom uniforms based on what was given in the constructor. This is called internally in `prepareDraw`.
+       * @param {import("../Map.js").FrameState} frameState Frame state.
+       */
+
+    }, {
+      key: "applyUniforms",
+      value: function applyUniforms(frameState) {
+        var gl = this.getGL();
+        var value;
+        var textureSlot = 0;
+        this.uniforms_.forEach(function (uniform) {
+          value = typeof uniform.value === 'function' ? uniform.value(frameState) : uniform.value; // apply value based on type
+
+          if (value instanceof HTMLCanvasElement || value instanceof HTMLImageElement || value instanceof ImageData) {
+            // create a texture & put data
+            if (!uniform.texture) {
+              uniform.prevValue = undefined;
+              uniform.texture = gl.createTexture();
+            }
+
+            gl.activeTexture(gl["TEXTURE".concat(textureSlot)]);
+            gl.bindTexture(gl.TEXTURE_2D, uniform.texture);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            var imageReady = !(value instanceof HTMLImageElement) ||
+            /** @type {HTMLImageElement} */
+            value.complete;
+
+            if (imageReady && uniform.prevValue !== value) {
+              uniform.prevValue = value;
+              gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, value);
+            } // fill texture slots by increasing index
+
+
+            gl.uniform1i(this.getUniformLocation(uniform.name), textureSlot++);
+          } else if (Array.isArray(value) && value.length === 6) {
+            this.setUniformMatrixValue(uniform.name, fromTransform(this.tmpMat4_, value));
+          } else if (Array.isArray(value) && value.length <= 4) {
+            switch (value.length) {
+              case 2:
+                gl.uniform2f(this.getUniformLocation(uniform.name), value[0], value[1]);
+                return;
+
+              case 3:
+                gl.uniform3f(this.getUniformLocation(uniform.name), value[0], value[1], value[2]);
+                return;
+
+              case 4:
+                gl.uniform4f(this.getUniformLocation(uniform.name), value[0], value[1], value[2], value[3]);
+                return;
+
+              default:
+                return;
+            }
+          } else if (typeof value === 'number') {
+            gl.uniform1f(this.getUniformLocation(uniform.name), value);
+          }
+        }.bind(this));
+      }
+      /**
+       * Set up a program for use. The program will be set as the current one. Then, the uniforms used
+       * in the program will be set based on the current frame state and the helper configuration.
+       * @param {WebGLProgram} program Program.
+       * @param {import("../Map.js").FrameState} frameState Frame state.
+       */
+
+    }, {
+      key: "useProgram",
+      value: function useProgram(program, frameState) {
+        var gl = this.getGL();
+        gl.useProgram(program);
+        this.currentProgram_ = program;
+        this.uniformLocations_ = {};
+        this.attribLocations_ = {};
+        this.applyFrameState(frameState);
+        this.applyUniforms(frameState);
+      }
+      /**
+       * Will attempt to compile a vertex or fragment shader based on source
+       * On error, the shader will be returned but
+       * `gl.getShaderParameter(shader, gl.COMPILE_STATUS)` will return `true`
+       * Use `gl.getShaderInfoLog(shader)` to have details
+       * @param {string} source Shader source
+       * @param {ShaderType} type VERTEX_SHADER or FRAGMENT_SHADER
+       * @return {WebGLShader} Shader object
+       */
+
+    }, {
+      key: "compileShader",
+      value: function compileShader(source, type) {
+        var gl = this.getGL();
+        var shader = gl.createShader(type);
+        gl.shaderSource(shader, source);
+        gl.compileShader(shader);
+        return shader;
+      }
+      /**
+       * Create a program for a vertex and fragment shader.  Throws if shader compilation fails.
+       * @param {string} fragmentShaderSource Fragment shader source.
+       * @param {string} vertexShaderSource Vertex shader source.
+       * @return {WebGLProgram} Program
+       */
+
+    }, {
+      key: "getProgram",
+      value: function getProgram(fragmentShaderSource, vertexShaderSource) {
+        var gl = this.getGL();
+        var fragmentShader = this.compileShader(fragmentShaderSource, gl.FRAGMENT_SHADER);
+        var vertexShader = this.compileShader(vertexShaderSource, gl.VERTEX_SHADER);
+        var program = gl.createProgram();
+        gl.attachShader(program, fragmentShader);
+        gl.attachShader(program, vertexShader);
+        gl.linkProgram(program);
+
+        if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
+          var message = "Fragment shader compliation failed: ".concat(gl.getShaderInfoLog(fragmentShader));
+          throw new Error(message);
+        }
+
+        gl.deleteShader(fragmentShader);
+
+        if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
+          var _message = "Vertex shader compilation failed: ".concat(gl.getShaderInfoLog(vertexShader));
+
+          throw new Error(_message);
+        }
+
+        gl.deleteShader(vertexShader);
+
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+          var _message2 = "GL program linking failed: ".concat(gl.getShaderInfoLog(vertexShader));
+
+          throw new Error(_message2);
+        }
+
+        return program;
+      }
+      /**
+       * Will get the location from the shader or the cache
+       * @param {string} name Uniform name
+       * @return {WebGLUniformLocation} uniformLocation
+       */
+
+    }, {
+      key: "getUniformLocation",
+      value: function getUniformLocation(name) {
+        if (this.uniformLocations_[name] === undefined) {
+          this.uniformLocations_[name] = this.getGL().getUniformLocation(this.currentProgram_, name);
+        }
+
+        return this.uniformLocations_[name];
+      }
+      /**
+       * Will get the location from the shader or the cache
+       * @param {string} name Attribute name
+       * @return {number} attribLocation
+       */
+
+    }, {
+      key: "getAttributeLocation",
+      value: function getAttributeLocation(name) {
+        if (this.attribLocations_[name] === undefined) {
+          this.attribLocations_[name] = this.getGL().getAttribLocation(this.currentProgram_, name);
+        }
+
+        return this.attribLocations_[name];
+      }
+      /**
+       * Modifies the given transform to apply the rotation/translation/scaling of the given frame state.
+       * The resulting transform can be used to convert world space coordinates to view coordinates.
+       * @param {import("../Map.js").FrameState} frameState Frame state.
+       * @param {import("../transform").Transform} transform Transform to update.
+       * @return {import("../transform").Transform} The updated transform object.
+       */
+
+    }, {
+      key: "makeProjectionTransform",
+      value: function makeProjectionTransform(frameState, transform) {
+        var size = frameState.size;
+        var rotation = frameState.viewState.rotation;
+        var resolution = frameState.viewState.resolution;
+        var center = frameState.viewState.center;
+        reset(transform);
+        compose(transform, 0, 0, 2 / (resolution * size[0]), 2 / (resolution * size[1]), -rotation, -center[0], -center[1]);
+        return transform;
+      }
+      /**
+       * Give a value for a standard float uniform
+       * @param {string} uniform Uniform name
+       * @param {number} value Value
+       */
+
+    }, {
+      key: "setUniformFloatValue",
+      value: function setUniformFloatValue(uniform, value) {
+        this.getGL().uniform1f(this.getUniformLocation(uniform), value);
+      }
+      /**
+       * Give a value for a vec2 uniform
+       * @param {string} uniform Uniform name
+       * @param {Array<number>} value Array of length 4.
+       */
+
+    }, {
+      key: "setUniformFloatVec2",
+      value: function setUniformFloatVec2(uniform, value) {
+        this.getGL().uniform2fv(this.getUniformLocation(uniform), value);
+      }
+      /**
+       * Give a value for a vec4 uniform
+       * @param {string} uniform Uniform name
+       * @param {Array<number>} value Array of length 4.
+       */
+
+    }, {
+      key: "setUniformFloatVec4",
+      value: function setUniformFloatVec4(uniform, value) {
+        this.getGL().uniform4fv(this.getUniformLocation(uniform), value);
+      }
+      /**
+       * Give a value for a standard matrix4 uniform
+       * @param {string} uniform Uniform name
+       * @param {Array<number>} value Matrix value
+       */
+
+    }, {
+      key: "setUniformMatrixValue",
+      value: function setUniformMatrixValue(uniform, value) {
+        this.getGL().uniformMatrix4fv(this.getUniformLocation(uniform), false, value);
+      }
+      /**
+       * Will set the currently bound buffer to an attribute of the shader program. Used by `#enableAttributes`
+       * internally.
+       * @param {string} attribName Attribute name
+       * @param {number} size Number of components per attributes
+       * @param {number} type UNSIGNED_INT, UNSIGNED_BYTE, UNSIGNED_SHORT or FLOAT
+       * @param {number} stride Stride in bytes (0 means attribs are packed)
+       * @param {number} offset Offset in bytes
+       * @private
+       */
+
+    }, {
+      key: "enableAttributeArray_",
+      value: function enableAttributeArray_(attribName, size, type, stride, offset) {
+        var location = this.getAttributeLocation(attribName); // the attribute has not been found in the shaders; do not enable it
+
+        if (location < 0) {
+          return;
+        }
+
+        this.getGL().enableVertexAttribArray(location);
+        this.getGL().vertexAttribPointer(location, size, type, false, stride, offset);
+      }
+      /**
+       * Will enable the following attributes to be read from the currently bound buffer,
+       * i.e. tell the GPU where to read the different attributes in the buffer. An error in the
+       * size/type/order of attributes will most likely break the rendering and throw a WebGL exception.
+       * @param {Array<AttributeDescription>} attributes Ordered list of attributes to read from the buffer
+       */
+
+    }, {
+      key: "enableAttributes",
+      value: function enableAttributes(attributes) {
+        var stride = computeAttributesStride(attributes);
+        var offset = 0;
+
+        for (var i = 0; i < attributes.length; i++) {
+          var attr = attributes[i];
+          this.enableAttributeArray_(attr.name, attr.size, attr.type || FLOAT, stride, offset);
+          offset += attr.size * getByteSizeFromType(attr.type);
+        }
+      }
+      /**
+       * WebGL context was lost
+       * @private
+       */
+
+    }, {
+      key: "handleWebGLContextLost",
+      value: function handleWebGLContextLost() {
+        clear(this.bufferCache_);
+        this.currentProgram_ = null;
+      }
+      /**
+       * WebGL context was restored
+       * @private
+       */
+
+    }, {
+      key: "handleWebGLContextRestored",
+      value: function handleWebGLContextRestored() {}
+      /**
+       * Will create or reuse a given webgl texture and apply the given size. If no image data
+       * specified, the texture will be empty, otherwise image data will be used and the `size`
+       * parameter will be ignored.
+       * Note: wrap parameters are set to clamp to edge, min filter is set to linear.
+       * @param {Array<number>} size Expected size of the texture
+       * @param {ImageData|HTMLImageElement|HTMLCanvasElement} [data] Image data/object to bind to the texture
+       * @param {WebGLTexture} [texture] Existing texture to reuse
+       * @return {WebGLTexture} The generated texture
+       */
+
+    }, {
+      key: "createTexture",
+      value: function createTexture(size, data, texture) {
+        var gl = this.getGL();
+        texture = texture || gl.createTexture(); // set params & size
+
+        var level = 0;
+        var internalFormat = gl.RGBA;
+        var border = 0;
+        var format = gl.RGBA;
+        var type = gl.UNSIGNED_BYTE;
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+
+        if (data) {
+          gl.texImage2D(gl.TEXTURE_2D, level, internalFormat, format, type, data);
+        } else {
+          gl.texImage2D(gl.TEXTURE_2D, level, internalFormat, size[0], size[1], border, format, type, null);
+        }
+
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        return texture;
+      }
+    }]);
+
+    return WebGLHelper;
+  }(Disposable);
+  /**
+   * Compute a stride in bytes based on a list of attributes
+   * @param {Array<AttributeDescription>} attributes Ordered list of attributes
+   * @return {number} Stride, ie amount of values for each vertex in the vertex buffer
+   */
+
+
+  function computeAttributesStride(attributes) {
+    var stride = 0;
+
+    for (var i = 0; i < attributes.length; i++) {
+      var attr = attributes[i];
+      stride += attr.size * getByteSizeFromType(attr.type);
+    }
+
+    return stride;
+  }
+  /**
+   * Computes the size in byte of an attribute type.
+   * @param {AttributeType} type Attribute type
+   * @return {number} The size in bytes
+   */
+
+  function getByteSizeFromType(type) {
+    switch (type) {
+      case AttributeType.UNSIGNED_BYTE:
+        return Uint8Array.BYTES_PER_ELEMENT;
+
+      case AttributeType.UNSIGNED_SHORT:
+        return Uint16Array.BYTES_PER_ELEMENT;
+
+      case AttributeType.UNSIGNED_INT:
+        return Uint32Array.BYTES_PER_ELEMENT;
+
+      case AttributeType.FLOAT:
+      default:
+        return Float32Array.BYTES_PER_ELEMENT;
+    }
+  }
+
+  /**
+   * @typedef {Object} PostProcessesOptions
+   * @property {number} [scaleRatio] Scale ratio; if < 1, the post process will render to a texture smaller than
+   * the main canvas that will then be sampled up (useful for saving resource on blur steps).
+   * @property {string} [vertexShader] Vertex shader source
+   * @property {string} [fragmentShader] Fragment shader source
+   * @property {Object<string,import("../../webgl/Helper").UniformValue>} [uniforms] Uniform definitions for the post process step
+   */
+
+  /**
+   * @typedef {Object} Options
+   * @property {Object<string,import("../../webgl/Helper").UniformValue>} [uniforms] Uniform definitions for the post process steps
+   * @property {Array<PostProcessesOptions>} [postProcesses] Post-processes definitions
+   */
+
+  /**
+   * @classdesc
+   * Base WebGL renderer class.
+   * Holds all logic related to data manipulation & some common rendering logic
+   * @template {import("../../layer/Layer.js").default} LayerType
+   * @extends {LayerRenderer<LayerType>}
+   */
+
+  var WebGLLayerRenderer = /*#__PURE__*/function (_LayerRenderer) {
+    _inherits(WebGLLayerRenderer, _LayerRenderer);
+
+    var _super = _createSuper(WebGLLayerRenderer);
+
+    /**
+     * @param {LayerType} layer Layer.
+     * @param {Options} [options] Options.
+     */
+    function WebGLLayerRenderer(layer, options) {
+      var _this;
+
+      _classCallCheck(this, WebGLLayerRenderer);
+
+      _this = _super.call(this, layer);
+      options = options || {};
+      /**
+       * The transform for viewport CSS pixels to rendered pixels.  This transform is only
+       * set before dispatching rendering events.
+       * @private
+       * @type {import("../../transform.js").Transform}
+       */
+
+      _this.inversePixelTransform_ = create$1();
+      /**
+       * @private
+       * @type {CanvasRenderingContext2D}
+       */
+
+      _this.pixelContext_ = null;
+      /**
+       * @private
+       */
+
+      _this.postProcesses_ = options.postProcesses;
+      /**
+       * @private
+       */
+
+      _this.uniforms_ = options.uniforms;
+      /**
+       * @type {WebGLHelper}
+       * @protected
+       */
+
+      _this.helper;
+      layer.addChangeListener(LayerProperty.MAP, _this.removeHelper.bind(_assertThisInitialized(_this)));
+      _this.dispatchPreComposeEvent = _this.dispatchPreComposeEvent.bind(_assertThisInitialized(_this));
+      _this.dispatchPostComposeEvent = _this.dispatchPostComposeEvent.bind(_assertThisInitialized(_this));
+      return _this;
+    }
+    /**
+     * @param {WebGLRenderingContext} context The WebGL rendering context.
+     * @param {import("../../Map.js").FrameState} frameState Frame state.
+     * @protected
+     */
+
+
+    _createClass(WebGLLayerRenderer, [{
+      key: "dispatchPreComposeEvent",
+      value: function dispatchPreComposeEvent(context, frameState) {
+        var layer = this.getLayer();
+
+        if (layer.hasListener(RenderEventType.PRECOMPOSE)) {
+          var event = new RenderEvent(RenderEventType.PRECOMPOSE, undefined, frameState, context);
+          layer.dispatchEvent(event);
+        }
+      }
+      /**
+       * @param {WebGLRenderingContext} context The WebGL rendering context.
+       * @param {import("../../Map.js").FrameState} frameState Frame state.
+       * @protected
+       */
+
+    }, {
+      key: "dispatchPostComposeEvent",
+      value: function dispatchPostComposeEvent(context, frameState) {
+        var layer = this.getLayer();
+
+        if (layer.hasListener(RenderEventType.POSTCOMPOSE)) {
+          var event = new RenderEvent(RenderEventType.POSTCOMPOSE, undefined, frameState, context);
+          layer.dispatchEvent(event);
+        }
+      }
+      /**
+       * Reset options (only handles uniforms).
+       * @param {Options} options Options.
+       */
+
+    }, {
+      key: "reset",
+      value: function reset(options) {
+        this.uniforms_ = options.uniforms;
+
+        if (this.helper) {
+          this.helper.setUniforms(this.uniforms_);
+        }
+      }
+      /**
+       * @protected
+       */
+
+    }, {
+      key: "removeHelper",
+      value: function removeHelper() {
+        if (this.helper) {
+          this.helper.dispose();
+          delete this.helper;
+        }
+      }
+      /**
+       * Determine whether renderFrame should be called.
+       * @param {import("../../Map.js").FrameState} frameState Frame state.
+       * @return {boolean} Layer is ready to be rendered.
+       */
+
+    }, {
+      key: "prepareFrame",
+      value: function prepareFrame(frameState) {
+        if (this.getLayer().getRenderSource()) {
+          var incrementGroup = true;
+          var groupNumber = -1;
+          var className;
+
+          for (var i = 0, ii = frameState.layerStatesArray.length; i < ii; i++) {
+            var layer = frameState.layerStatesArray[i].layer;
+            var renderer = layer.getRenderer();
+
+            if (!(renderer instanceof WebGLLayerRenderer)) {
+              incrementGroup = true;
+              continue;
+            }
+
+            var layerClassName = layer.getClassName();
+
+            if (incrementGroup || layerClassName !== className) {
+              groupNumber += 1;
+              incrementGroup = false;
+            }
+
+            className = layerClassName;
+
+            if (renderer === this) {
+              break;
+            }
+          }
+
+          var canvasCacheKey = 'map/' + frameState.mapId + '/group/' + groupNumber;
+
+          if (!this.helper || !this.helper.canvasCacheKeyMatches(canvasCacheKey)) {
+            this.removeHelper();
+            this.helper = new WebGLHelper({
+              postProcesses: this.postProcesses_,
+              uniforms: this.uniforms_,
+              canvasCacheKey: canvasCacheKey
+            });
+
+            if (className) {
+              this.helper.getCanvas().className = className;
+            }
+
+            this.afterHelperCreated();
+          }
+        }
+
+        return this.prepareFrameInternal(frameState);
+      }
+      /**
+       * @protected
+       */
+
+    }, {
+      key: "afterHelperCreated",
+      value: function afterHelperCreated() {}
+      /**
+       * Determine whether renderFrame should be called.
+       * @param {import("../../Map.js").FrameState} frameState Frame state.
+       * @return {boolean} Layer is ready to be rendered.
+       * @protected
+       */
+
+    }, {
+      key: "prepareFrameInternal",
+      value: function prepareFrameInternal(frameState) {
+        return true;
+      }
+      /**
+       * Clean up.
+       */
+
+    }, {
+      key: "disposeInternal",
+      value: function disposeInternal() {
+        this.removeHelper();
+
+        _get(_getPrototypeOf(WebGLLayerRenderer.prototype), "disposeInternal", this).call(this);
+      }
+      /**
+       * @param {import("../../render/EventType.js").default} type Event type.
+       * @param {WebGLRenderingContext} context The rendering context.
+       * @param {import("../../Map.js").FrameState} frameState Frame state.
+       * @private
+       */
+
+    }, {
+      key: "dispatchRenderEvent_",
+      value: function dispatchRenderEvent_(type, context, frameState) {
+        var layer = this.getLayer();
+
+        if (layer.hasListener(type)) {
+          compose(this.inversePixelTransform_, 0, 0, frameState.pixelRatio, -frameState.pixelRatio, 0, 0, -frameState.size[1]);
+          var event = new RenderEvent(type, this.inversePixelTransform_, frameState, context);
+          layer.dispatchEvent(event);
+        }
+      }
+      /**
+       * @param {WebGLRenderingContext} context The rendering context.
+       * @param {import("../../Map.js").FrameState} frameState Frame state.
+       * @protected
+       */
+
+    }, {
+      key: "preRender",
+      value: function preRender(context, frameState) {
+        this.dispatchRenderEvent_(RenderEventType.PRERENDER, context, frameState);
+      }
+      /**
+       * @param {WebGLRenderingContext} context The rendering context.
+       * @param {import("../../Map.js").FrameState} frameState Frame state.
+       * @protected
+       */
+
+    }, {
+      key: "postRender",
+      value: function postRender(context, frameState) {
+        this.dispatchRenderEvent_(RenderEventType.POSTRENDER, context, frameState);
+      }
+    }]);
+
+    return WebGLLayerRenderer;
+  }(LayerRenderer);
 
   var earcut$1 = {exports: {}};
 
@@ -56272,8 +59671,2655 @@
 
   new GeoJSON();
 
+  /**
+   * @module ol/webgl/PaletteTexture
+   */
+  var PaletteTexture = /*#__PURE__*/function () {
+    /**
+     * @param {string} name The name of the texture.
+     * @param {Uint8Array} data The texture data.
+     */
+    function PaletteTexture(name, data) {
+      _classCallCheck(this, PaletteTexture);
+
+      this.name = name;
+      this.data = data;
+      /**
+       * @type {WebGLTexture}
+       * @private
+       */
+
+      this.texture_ = null;
+    }
+    /**
+     * @param {WebGLRenderingContext} gl Rendering context.
+     * @return {WebGLTexture} The texture.
+     */
+
+
+    _createClass(PaletteTexture, [{
+      key: "getTexture",
+      value: function getTexture(gl) {
+        if (!this.texture_) {
+          var texture = gl.createTexture();
+          gl.bindTexture(gl.TEXTURE_2D, texture);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.data.length / 4, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, this.data);
+          this.texture_ = texture;
+        }
+
+        return this.texture_;
+      }
+    }]);
+
+    return PaletteTexture;
+  }();
+
+  /**
+   * @param {WebGLRenderingContext} gl The WebGL context.
+   * @param {WebGLTexture} texture The texture.
+   * @param {boolean} interpolate Interpolate when resampling.
+   */
+
+  function bindAndConfigure(gl, texture, interpolate) {
+    var resampleFilter = interpolate ? gl.LINEAR : gl.NEAREST;
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, resampleFilter);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, resampleFilter);
+  }
+  /**
+   * @param {WebGLRenderingContext} gl The WebGL context.
+   * @param {WebGLTexture} texture The texture.
+   * @param {HTMLImageElement|HTMLCanvasElement|HTMLVideoElement} image The image.
+   * @param {boolean} interpolate Interpolate when resampling.
+   */
+
+
+  function uploadImageTexture(gl, texture, image, interpolate) {
+    bindAndConfigure(gl, texture, interpolate);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+  }
+  /**
+   * @param {import("./Helper.js").default} helper The WebGL helper.
+   * @param {WebGLTexture} texture The texture.
+   * @param {import("../DataTile.js").Data} data The pixel data.
+   * @param {import("../size.js").Size} size The pixel size.
+   * @param {number} bandCount The band count.
+   * @param {boolean} interpolate Interpolate when resampling.
+   */
+
+
+  function uploadDataTexture(helper, texture, data, size, bandCount, interpolate) {
+    var gl = helper.getGL();
+    var textureType;
+    var canInterpolate;
+
+    if (data instanceof Float32Array) {
+      textureType = gl.FLOAT;
+      helper.getExtension('OES_texture_float');
+      var extension = helper.getExtension('OES_texture_float_linear');
+      canInterpolate = extension !== null;
+    } else {
+      textureType = gl.UNSIGNED_BYTE;
+      canInterpolate = true;
+    }
+
+    bindAndConfigure(gl, texture, interpolate && canInterpolate);
+    var bytesPerRow = data.byteLength / size[1];
+    var unpackAlignment = 1;
+
+    if (bytesPerRow % 8 === 0) {
+      unpackAlignment = 8;
+    } else if (bytesPerRow % 4 === 0) {
+      unpackAlignment = 4;
+    } else if (bytesPerRow % 2 === 0) {
+      unpackAlignment = 2;
+    }
+
+    var format;
+
+    switch (bandCount) {
+      case 1:
+        {
+          format = gl.LUMINANCE;
+          break;
+        }
+
+      case 2:
+        {
+          format = gl.LUMINANCE_ALPHA;
+          break;
+        }
+
+      case 3:
+        {
+          format = gl.RGB;
+          break;
+        }
+
+      case 4:
+        {
+          format = gl.RGBA;
+          break;
+        }
+
+      default:
+        {
+          throw new Error("Unsupported number of bands: ".concat(bandCount));
+        }
+    }
+
+    var oldUnpackAlignment = gl.getParameter(gl.UNPACK_ALIGNMENT);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, unpackAlignment);
+    gl.texImage2D(gl.TEXTURE_2D, 0, format, size[0], size[1], 0, format, textureType, data);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, oldUnpackAlignment);
+  }
+  /**
+   * @type {CanvasRenderingContext2D}
+   */
+
+
+  var pixelContext = null;
+
+  function createPixelContext() {
+    var canvas = document.createElement('canvas');
+    canvas.width = 1;
+    canvas.height = 1;
+    pixelContext = canvas.getContext('2d');
+  }
+  /**
+   * @typedef {import("../DataTile.js").default|ImageTile|ReprojTile} TileType
+   */
+
+  /**
+   * @typedef {Object} Options
+   * @property {TileType} tile The tile.
+   * @property {import("../tilegrid/TileGrid.js").default} grid Tile grid.
+   * @property {import("../webgl/Helper.js").default} helper WebGL helper.
+   * @property {number} [gutter=0] The size in pixels of the gutter around image tiles to ignore.
+   */
+
+
+  var TileTexture = /*#__PURE__*/function (_EventTarget) {
+    _inherits(TileTexture, _EventTarget);
+
+    var _super = _createSuper(TileTexture);
+
+    /**
+     * @param {Options} options The tile texture options.
+     */
+    function TileTexture(options) {
+      var _this;
+
+      _classCallCheck(this, TileTexture);
+
+      _this = _super.call(this);
+      /**
+       * @type {TileType}
+       */
+
+      _this.tile;
+      /**
+       * @type {Array<WebGLTexture>}
+       */
+
+      _this.textures = [];
+      _this.handleTileChange_ = _this.handleTileChange_.bind(_assertThisInitialized(_this));
+      /**
+       * @type {import("../size.js").Size}
+       * @private
+       */
+
+      _this.renderSize_ = toSize(options.grid.getTileSize(options.tile.tileCoord[0]));
+      /**
+       * @type {number}
+       * @private
+       */
+
+      _this.gutter_ = options.gutter || 0;
+      /**
+       * @type {number}
+       */
+
+      _this.bandCount = NaN;
+      /**
+       * @type {import("../webgl/Helper.js").default}
+       * @private
+       */
+
+      _this.helper_ = options.helper;
+      var coords = new WebGLArrayBuffer(ARRAY_BUFFER, STATIC_DRAW);
+      coords.fromArray([0, // P0
+      1, 1, // P1
+      1, 1, // P2
+      0, 0, // P3
+      0]);
+
+      _this.helper_.flushBufferData(coords);
+      /**
+       * @type {WebGLArrayBuffer}
+       */
+
+
+      _this.coords = coords;
+
+      _this.setTile(options.tile);
+
+      return _this;
+    }
+    /**
+     * @param {TileType} tile Tile.
+     */
+
+
+    _createClass(TileTexture, [{
+      key: "setTile",
+      value: function setTile(tile) {
+        if (tile !== this.tile) {
+          if (this.tile) {
+            this.tile.removeEventListener(EventType.CHANGE, this.handleTileChange_);
+          }
+
+          this.tile = tile;
+          this.textures.length = 0;
+          this.loaded = tile.getState() === TileState.LOADED;
+
+          if (this.loaded) {
+            this.uploadTile_();
+          } else {
+            if (tile instanceof ImageTile) {
+              var image = tile.getImage();
+
+              if (image instanceof Image && !image.crossOrigin) {
+                image.crossOrigin = 'anonymous';
+              }
+            }
+
+            tile.addEventListener(EventType.CHANGE, this.handleTileChange_);
+          }
+        }
+      }
+    }, {
+      key: "uploadTile_",
+      value: function uploadTile_() {
+        var helper = this.helper_;
+        var gl = helper.getGL();
+        var tile = this.tile;
+
+        if (tile instanceof ImageTile || tile instanceof ReprojTile) {
+          var texture = gl.createTexture();
+          this.textures.push(texture);
+          this.bandCount = 4;
+          uploadImageTexture(gl, texture, tile.getImage(), tile.interpolate);
+          return;
+        }
+
+        var sourceTileSize = tile.getSize();
+        var pixelSize = [sourceTileSize[0] + 2 * this.gutter_, sourceTileSize[1] + 2 * this.gutter_];
+        var data = tile.getData();
+        var isFloat = data instanceof Float32Array;
+        var pixelCount = pixelSize[0] * pixelSize[1];
+        var DataType = isFloat ? Float32Array : Uint8Array;
+        var bytesPerElement = DataType.BYTES_PER_ELEMENT;
+        var bytesPerRow = data.byteLength / pixelSize[1];
+        this.bandCount = Math.floor(bytesPerRow / bytesPerElement / pixelSize[0]);
+        var textureCount = Math.ceil(this.bandCount / 4);
+
+        if (textureCount === 1) {
+          var _texture = gl.createTexture();
+
+          this.textures.push(_texture);
+          uploadDataTexture(helper, _texture, data, pixelSize, this.bandCount, tile.interpolate);
+          return;
+        }
+
+        var textureDataArrays = new Array(textureCount);
+
+        for (var textureIndex = 0; textureIndex < textureCount; ++textureIndex) {
+          var _texture2 = gl.createTexture();
+
+          this.textures.push(_texture2);
+          var bandCount = textureIndex < textureCount - 1 ? 4 : (this.bandCount - 1) % 4 + 1;
+          textureDataArrays[textureIndex] = new DataType(pixelCount * bandCount);
+        }
+
+        var dataIndex = 0;
+        var rowOffset = 0;
+        var colCount = pixelSize[0] * this.bandCount;
+
+        for (var rowIndex = 0; rowIndex < pixelSize[1]; ++rowIndex) {
+          for (var colIndex = 0; colIndex < colCount; ++colIndex) {
+            var dataValue = data[rowOffset + colIndex];
+            var pixelIndex = Math.floor(dataIndex / this.bandCount);
+            var bandIndex = colIndex % this.bandCount;
+
+            var _textureIndex = Math.floor(bandIndex / 4);
+
+            var textureData = textureDataArrays[_textureIndex];
+
+            var _bandCount = textureData.length / pixelCount;
+
+            var textureBandIndex = bandIndex % 4;
+            textureData[pixelIndex * _bandCount + textureBandIndex] = dataValue;
+            ++dataIndex;
+          }
+
+          rowOffset += bytesPerRow / bytesPerElement;
+        }
+
+        for (var _textureIndex2 = 0; _textureIndex2 < textureCount; ++_textureIndex2) {
+          var _texture3 = this.textures[_textureIndex2];
+          var _textureData = textureDataArrays[_textureIndex2];
+
+          var _bandCount2 = _textureData.length / pixelCount;
+
+          uploadDataTexture(helper, _texture3, _textureData, pixelSize, _bandCount2, tile.interpolate);
+        }
+      }
+    }, {
+      key: "handleTileChange_",
+      value: function handleTileChange_() {
+        if (this.tile.getState() === TileState.LOADED) {
+          this.loaded = true;
+          this.uploadTile_();
+          this.dispatchEvent(EventType.CHANGE);
+        }
+      }
+    }, {
+      key: "disposeInternal",
+      value: function disposeInternal() {
+        var gl = this.helper_.getGL();
+        this.helper_.deleteBuffer(this.coords);
+
+        for (var i = 0; i < this.textures.length; ++i) {
+          gl.deleteTexture(this.textures[i]);
+        }
+
+        this.tile.removeEventListener(EventType.CHANGE, this.handleTileChange_);
+      }
+      /**
+       * Get data for a pixel.  If the tile is not loaded, null is returned.
+       * @param {number} renderCol The column index (in rendered tile space).
+       * @param {number} renderRow The row index (in rendered tile space).
+       * @return {import("../DataTile.js").Data|null} The data.
+       */
+
+    }, {
+      key: "getPixelData",
+      value: function getPixelData(renderCol, renderRow) {
+        if (!this.loaded) {
+          return null;
+        }
+
+        var renderWidth = this.renderSize_[0];
+        var renderHeight = this.renderSize_[1];
+        var gutter = this.gutter_;
+
+        if (this.tile instanceof DataTile) {
+          var sourceSize = this.tile.getSize();
+          var _sourceWidthWithoutGutter = sourceSize[0];
+          var _sourceHeightWithoutGutter = sourceSize[1];
+
+          var _sourceWidth = _sourceWidthWithoutGutter + 2 * gutter;
+
+          var _sourceHeight = _sourceHeightWithoutGutter + 2 * gutter;
+
+          var _sourceCol = gutter + Math.floor(_sourceWidthWithoutGutter * (renderCol / renderWidth));
+
+          var _sourceRow = gutter + Math.floor(_sourceHeightWithoutGutter * (renderRow / renderHeight));
+
+          var _data = this.tile.getData();
+
+          if (_data instanceof DataView) {
+            var bytesPerPixel = _data.byteLength / (_sourceWidth * _sourceHeight);
+
+            var _offset = bytesPerPixel * (_sourceRow * _sourceWidth + _sourceCol);
+
+            var buffer = _data.buffer.slice(_offset, _offset + bytesPerPixel);
+
+            return new DataView(buffer);
+          }
+
+          var offset = this.bandCount * (_sourceRow * _sourceWidth + _sourceCol);
+          return _data.slice(offset, offset + this.bandCount);
+        }
+
+        if (!pixelContext) {
+          createPixelContext();
+        }
+
+        pixelContext.clearRect(0, 0, 1, 1);
+        var image = this.tile.getImage();
+        var sourceWidth = image.width;
+        var sourceHeight = image.height;
+        var sourceWidthWithoutGutter = sourceWidth - 2 * gutter;
+        var sourceHeightWithoutGutter = sourceHeight - 2 * gutter;
+        var sourceCol = gutter + Math.floor(sourceWidthWithoutGutter * (renderCol / renderWidth));
+        var sourceRow = gutter + Math.floor(sourceHeightWithoutGutter * (renderRow / renderHeight));
+        var data;
+
+        try {
+          pixelContext.drawImage(image, sourceCol, sourceRow, 1, 1, 0, 0, 1, 1);
+          data = pixelContext.getImageData(0, 0, 1, 1).data;
+        } catch (err) {
+          pixelContext = null;
+          return null;
+        }
+
+        return data;
+      }
+    }]);
+
+    return TileTexture;
+  }(Target);
+
+  var Uniforms = {
+    TILE_TEXTURE_ARRAY: 'u_tileTextures',
+    TILE_TRANSFORM: 'u_tileTransform',
+    TRANSITION_ALPHA: 'u_transitionAlpha',
+    DEPTH: 'u_depth',
+    TEXTURE_PIXEL_WIDTH: 'u_texturePixelWidth',
+    TEXTURE_PIXEL_HEIGHT: 'u_texturePixelHeight',
+    TEXTURE_RESOLUTION: 'u_textureResolution',
+    // map units per texture pixel
+    TEXTURE_ORIGIN_X: 'u_textureOriginX',
+    // map x coordinate of left edge of texture
+    TEXTURE_ORIGIN_Y: 'u_textureOriginY',
+    // map y coordinate of top edge of texture
+    RENDER_EXTENT: 'u_renderExtent',
+    // intersection of layer, source, and view extent
+    RESOLUTION: 'u_resolution',
+    ZOOM: 'u_zoom'
+  };
+  var Attributes = {
+    TEXTURE_COORD: 'a_textureCoord'
+  };
+  /**
+   * @type {Array<import('../../webgl/Helper.js').AttributeDescription>}
+   */
+
+  var attributeDescriptions = [{
+    name: Attributes.TEXTURE_COORD,
+    size: 2,
+    type: AttributeType.FLOAT
+  }];
+  /**
+   * @type {Object<string, boolean>}
+   */
+
+  var empty = {};
+  /**
+   * Transform a zoom level into a depth value ranging from -1 to 1.
+   * @param {number} z A zoom level.
+   * @return {number} A depth value.
+   */
+
+  function depthForZ(z) {
+    return 2 * (1 - 1 / (z + 1)) - 1;
+  }
+  /**
+   * Add a tile texture to the lookup.
+   * @param {Object<number, Array<import("../../webgl/TileTexture.js").default>>} tileTexturesByZ Lookup of
+   * tile textures by zoom level.
+   * @param {import("../../webgl/TileTexture.js").default} tileTexture A tile texture.
+   * @param {number} z The zoom level.
+   */
+
+
+  function addTileTextureToLookup(tileTexturesByZ, tileTexture, z) {
+    if (!(z in tileTexturesByZ)) {
+      tileTexturesByZ[z] = [];
+    }
+
+    tileTexturesByZ[z].push(tileTexture);
+  }
+  /**
+   * @param {import("../../Map.js").FrameState} frameState Frame state.
+   * @param {import("../../extent.js").Extent} extent The frame extent.
+   * @return {import("../../extent.js").Extent} Frame extent intersected with layer extents.
+   */
+
+
+  function getRenderExtent(frameState, extent) {
+    var layerState = frameState.layerStatesArray[frameState.layerIndex];
+
+    if (layerState.extent) {
+      extent = getIntersection(extent, fromUserExtent(layerState.extent, frameState.viewState.projection));
+    }
+
+    var source =
+    /** @type {import("../../source/Tile.js").default} */
+    layerState.layer.getRenderSource();
+
+    if (!source.getWrapX()) {
+      var gridExtent = source.getTileGridForProjection(frameState.viewState.projection).getExtent();
+
+      if (gridExtent) {
+        extent = getIntersection(extent, gridExtent);
+      }
+    }
+
+    return extent;
+  }
+
+  function getCacheKey(source, tileCoord) {
+    return "".concat(source.getKey(), ",").concat(getKey(tileCoord));
+  }
+  /**
+   * @typedef {Object} Options
+   * @property {string} vertexShader Vertex shader source.
+   * @property {string} fragmentShader Fragment shader source.
+   * @property {Object<string, import("../../webgl/Helper").UniformValue>} [uniforms] Additional uniforms
+   * made available to shaders.
+   * @property {Array<import("../../webgl/PaletteTexture.js").default>} [paletteTextures] Palette textures.
+   * @property {number} [cacheSize=512] The texture cache size.
+   */
+
+  /**
+   * @typedef {import("../../layer/WebGLTile.js").default} LayerType
+   */
+
+  /**
+   * @classdesc
+   * WebGL renderer for tile layers.
+   * @extends {WebGLLayerRenderer<LayerType>}
+   * @api
+   */
+
+
+  var WebGLTileLayerRenderer = /*#__PURE__*/function (_WebGLLayerRenderer) {
+    _inherits(WebGLTileLayerRenderer, _WebGLLayerRenderer);
+
+    var _super = _createSuper(WebGLTileLayerRenderer);
+
+    /**
+     * @param {LayerType} tileLayer Tile layer.
+     * @param {Options} options Options.
+     */
+    function WebGLTileLayerRenderer(tileLayer, options) {
+      var _this;
+
+      _classCallCheck(this, WebGLTileLayerRenderer);
+
+      _this = _super.call(this, tileLayer, {
+        uniforms: options.uniforms
+      });
+      /**
+       * The last call to `renderFrame` was completed with all tiles loaded
+       * @type {boolean}
+       */
+
+      _this.renderComplete = false;
+      /**
+       * This transform converts texture coordinates to screen coordinates.
+       * @type {import("../../transform.js").Transform}
+       * @private
+       */
+
+      _this.tileTransform_ = create$1();
+      /**
+       * @type {Array<number>}
+       * @private
+       */
+
+      _this.tempMat4_ = create();
+      /**
+       * @type {import("../../TileRange.js").default}
+       * @private
+       */
+
+      _this.tempTileRange_ = new TileRange(0, 0, 0, 0);
+      /**
+       * @type {import("../../tilecoord.js").TileCoord}
+       * @private
+       */
+
+      _this.tempTileCoord_ = createOrUpdate$1(0, 0, 0);
+      /**
+       * @type {import("../../size.js").Size}
+       * @private
+       */
+
+      _this.tempSize_ = [0, 0];
+      /**
+       * @type {WebGLProgram}
+       * @private
+       */
+
+      _this.program_;
+      /**
+       * @private
+       */
+
+      _this.vertexShader_ = options.vertexShader;
+      /**
+       * @private
+       */
+
+      _this.fragmentShader_ = options.fragmentShader;
+      /**
+       * Tiles are rendered as a quad with the following structure:
+       *
+       *  [P3]---------[P2]
+       *   |`           |
+       *   |  `     B   |
+       *   |    `       |
+       *   |      `     |
+       *   |   A    `   |
+       *   |          ` |
+       *  [P0]---------[P1]
+       *
+       * Triangle A: P0, P1, P3
+       * Triangle B: P1, P2, P3
+       *
+       * @private
+       */
+
+      _this.indices_ = new WebGLArrayBuffer(ELEMENT_ARRAY_BUFFER, STATIC_DRAW);
+
+      _this.indices_.fromArray([0, 1, 3, 1, 2, 3]);
+
+      var cacheSize = options.cacheSize !== undefined ? options.cacheSize : 512;
+      /**
+       * @type {import("../../structs/LRUCache.js").default<import("../../webgl/TileTexture.js").default>}
+       * @private
+       */
+
+      _this.tileTextureCache_ = new LRUCache(cacheSize);
+      /**
+       * @type {Array<import("../../webgl/PaletteTexture.js").default>}
+       * @private
+       */
+
+      _this.paletteTextures_ = options.paletteTextures || [];
+      /**
+       * @private
+       * @type {import("../../Map.js").FrameState|null}
+       */
+
+      _this.frameState_ = null;
+      /**
+       * @private
+       * @type {import("../../proj/Projection.js").default}
+       */
+
+      _this.projection_ = undefined;
+      return _this;
+    }
+    /**
+     * @param {Options} options Options.
+     */
+
+
+    _createClass(WebGLTileLayerRenderer, [{
+      key: "reset",
+      value: function reset(options) {
+        _get(_getPrototypeOf(WebGLTileLayerRenderer.prototype), "reset", this).call(this, {
+          uniforms: options.uniforms
+        });
+
+        this.vertexShader_ = options.vertexShader;
+        this.fragmentShader_ = options.fragmentShader;
+        this.paletteTextures_ = options.paletteTextures || [];
+
+        if (this.helper) {
+          this.program_ = this.helper.getProgram(this.fragmentShader_, this.vertexShader_);
+        }
+      }
+    }, {
+      key: "afterHelperCreated",
+      value: function afterHelperCreated() {
+        this.program_ = this.helper.getProgram(this.fragmentShader_, this.vertexShader_);
+        this.helper.flushBufferData(this.indices_);
+      }
+      /**
+       * @param {import("../../webgl/TileTexture").TileType} tile Tile.
+       * @return {boolean} Tile is drawable.
+       * @private
+       */
+
+    }, {
+      key: "isDrawableTile_",
+      value: function isDrawableTile_(tile) {
+        var tileLayer = this.getLayer();
+        var tileState = tile.getState();
+        var useInterimTilesOnError = tileLayer.getUseInterimTilesOnError();
+        return tileState == TileState.LOADED || tileState == TileState.EMPTY || tileState == TileState.ERROR && !useInterimTilesOnError;
+      }
+      /**
+       * Determine whether renderFrame should be called.
+       * @param {import("../../Map.js").FrameState} frameState Frame state.
+       * @return {boolean} Layer is ready to be rendered.
+       */
+
+    }, {
+      key: "prepareFrameInternal",
+      value: function prepareFrameInternal(frameState) {
+        if (!this.projection_) {
+          this.projection_ = frameState.viewState.projection;
+        } else if (frameState.viewState.projection !== this.projection_) {
+          this.clearCache();
+          this.projection_ = frameState.viewState.projection;
+        }
+
+        var layer = this.getLayer();
+        var source = layer.getRenderSource();
+
+        if (!source) {
+          return false;
+        }
+
+        if (isEmpty(getRenderExtent(frameState, frameState.extent))) {
+          return false;
+        }
+
+        return source.getState() === 'ready';
+      }
+      /**
+       * @param {import("../../Map.js").FrameState} frameState Frame state.
+       * @param {import("../../extent.js").Extent} extent The extent to be rendered.
+       * @param {number} initialZ The zoom level.
+       * @param {Object<number, Array<TileTexture>>} tileTexturesByZ The zoom level.
+       * @param {number} preload Number of additional levels to load.
+       */
+
+    }, {
+      key: "enqueueTiles",
+      value: function enqueueTiles(frameState, extent, initialZ, tileTexturesByZ, preload) {
+        var viewState = frameState.viewState;
+        var tileLayer = this.getLayer();
+        var tileSource = tileLayer.getRenderSource();
+        var tileGrid = tileSource.getTileGridForProjection(viewState.projection);
+        var gutter = tileSource.getGutterForProjection(viewState.projection);
+        var tileSourceKey = getUid(tileSource);
+
+        if (!(tileSourceKey in frameState.wantedTiles)) {
+          frameState.wantedTiles[tileSourceKey] = {};
+        }
+
+        var wantedTiles = frameState.wantedTiles[tileSourceKey];
+        var tileTextureCache = this.tileTextureCache_;
+        var map = tileLayer.getMapInternal();
+        var minZ = Math.max(initialZ - preload, tileGrid.getMinZoom(), tileGrid.getZForResolution(Math.min(tileLayer.getMaxResolution(), map ? map.getView().getResolutionForZoom(Math.max(tileLayer.getMinZoom(), 0)) : tileGrid.getResolution(0)), tileSource.zDirection));
+
+        for (var z = initialZ; z >= minZ; --z) {
+          var tileRange = tileGrid.getTileRangeForExtentAndZ(extent, z, this.tempTileRange_);
+          var tileResolution = tileGrid.getResolution(z);
+
+          for (var x = tileRange.minX; x <= tileRange.maxX; ++x) {
+            for (var y = tileRange.minY; y <= tileRange.maxY; ++y) {
+              var tileCoord = createOrUpdate$1(z, x, y, this.tempTileCoord_);
+              var cacheKey = getCacheKey(tileSource, tileCoord);
+              /** @type {TileTexture} */
+
+              var tileTexture = void 0;
+              /** @type {import("../../webgl/TileTexture").TileType} */
+
+              var tile = void 0;
+
+              if (tileTextureCache.containsKey(cacheKey)) {
+                tileTexture = tileTextureCache.get(cacheKey);
+                tile = tileTexture.tile;
+              }
+
+              if (!tileTexture || tileTexture.tile.key !== tileSource.getKey()) {
+                tile = tileSource.getTile(z, x, y, frameState.pixelRatio, viewState.projection);
+
+                if (!tileTexture) {
+                  tileTexture = new TileTexture({
+                    tile: tile,
+                    grid: tileGrid,
+                    helper: this.helper,
+                    gutter: gutter
+                  });
+                  tileTextureCache.set(cacheKey, tileTexture);
+                } else {
+                  if (this.isDrawableTile_(tile)) {
+                    tileTexture.setTile(tile);
+                  } else {
+                    var interimTile =
+                    /** @type {import("../../webgl/TileTexture").TileType} */
+                    tile.getInterimTile();
+                    tileTexture.setTile(interimTile);
+                  }
+                }
+              }
+
+              addTileTextureToLookup(tileTexturesByZ, tileTexture, z);
+              var tileQueueKey = tile.getKey();
+              wantedTiles[tileQueueKey] = true;
+
+              if (tile.getState() === TileState.IDLE) {
+                if (!frameState.tileQueue.isKeyQueued(tileQueueKey)) {
+                  frameState.tileQueue.enqueue([tile, tileSourceKey, tileGrid.getTileCoordCenter(tileCoord), tileResolution]);
+                }
+              }
+            }
+          }
+        }
+      }
+      /**
+       * Render the layer.
+       * @param {import("../../Map.js").FrameState} frameState Frame state.
+       * @return {HTMLElement} The rendered element.
+       */
+
+    }, {
+      key: "renderFrame",
+      value: function renderFrame(frameState) {
+        var _this2 = this;
+
+        this.frameState_ = frameState;
+        this.renderComplete = true;
+        var gl = this.helper.getGL();
+        this.preRender(gl, frameState);
+        var viewState = frameState.viewState;
+        var tileLayer = this.getLayer();
+        var tileSource = tileLayer.getRenderSource();
+        var tileGrid = tileSource.getTileGridForProjection(viewState.projection);
+        var gutter = tileSource.getGutterForProjection(viewState.projection);
+        var extent = getRenderExtent(frameState, frameState.extent);
+        var z = tileGrid.getZForResolution(viewState.resolution, tileSource.zDirection);
+        /**
+         * @type {Object<number, Array<import("../../webgl/TileTexture.js").default>>}
+         */
+
+        var tileTexturesByZ = {};
+        var preload = tileLayer.getPreload();
+
+        if (frameState.nextExtent) {
+          var targetZ = tileGrid.getZForResolution(viewState.nextResolution, tileSource.zDirection);
+          var nextExtent = getRenderExtent(frameState, frameState.nextExtent);
+          this.enqueueTiles(frameState, nextExtent, targetZ, tileTexturesByZ, preload);
+        }
+
+        this.enqueueTiles(frameState, extent, z, tileTexturesByZ, 0);
+
+        if (preload > 0) {
+          setTimeout(function () {
+            _this2.enqueueTiles(frameState, extent, z - 1, tileTexturesByZ, preload - 1);
+          }, 0);
+        }
+        /**
+         * A lookup of alpha values for tiles at the target rendering resolution
+         * for tiles that are in transition.  If a tile coord key is absent from
+         * this lookup, the tile should be rendered at alpha 1.
+         * @type {Object<string, number>}
+         */
+
+
+        var alphaLookup = {};
+        var uid = getUid(this);
+        var time = frameState.time;
+        var blend = false; // look for cached tiles to use if a target tile is not ready
+
+        var tileTextures = tileTexturesByZ[z];
+
+        for (var i = 0, ii = tileTextures.length; i < ii; ++i) {
+          var tileTexture = tileTextures[i];
+          var tile = tileTexture.tile;
+
+          if (tile instanceof ReprojTile && tile.getState() === TileState.EMPTY) {
+            continue;
+          }
+
+          var tileCoord = tile.tileCoord;
+
+          if (tileTexture.loaded) {
+            var alpha = tile.getAlpha(uid, time);
+
+            if (alpha === 1) {
+              // no need to look for alt tiles
+              tile.endTransition(uid);
+              continue;
+            }
+
+            blend = true;
+            var tileCoordKey = getKey(tileCoord);
+            alphaLookup[tileCoordKey] = alpha;
+          }
+
+          this.renderComplete = false; // first look for child tiles (at z + 1)
+
+          var coveredByChildren = this.findAltTiles_(tileGrid, tileCoord, z + 1, tileTexturesByZ);
+
+          if (coveredByChildren) {
+            continue;
+          } // next look for parent tiles
+
+
+          var minZoom = tileGrid.getMinZoom();
+
+          for (var parentZ = z - 1; parentZ >= minZoom; --parentZ) {
+            var coveredByParent = this.findAltTiles_(tileGrid, tileCoord, parentZ, tileTexturesByZ);
+
+            if (coveredByParent) {
+              break;
+            }
+          }
+        }
+
+        this.helper.useProgram(this.program_, frameState);
+        this.helper.prepareDraw(frameState, !blend);
+        var zs = Object.keys(tileTexturesByZ).map(Number).sort(numberSafeCompareFunction);
+        var centerX = viewState.center[0];
+        var centerY = viewState.center[1];
+
+        for (var j = 0, jj = zs.length; j < jj; ++j) {
+          var tileZ = zs[j];
+          var tileResolution = tileGrid.getResolution(tileZ);
+          var tileSize = toSize(tileGrid.getTileSize(tileZ), this.tempSize_);
+          var tileOrigin = tileGrid.getOrigin(tileZ);
+          var tileWidthWithGutter = tileSize[0] + 2 * gutter;
+          var tileHeightWithGutter = tileSize[1] + 2 * gutter;
+          var aspectRatio = tileWidthWithGutter / tileHeightWithGutter;
+          var centerI = (centerX - tileOrigin[0]) / (tileSize[0] * tileResolution);
+          var centerJ = (tileOrigin[1] - centerY) / (tileSize[1] * tileResolution);
+          var tileScale = viewState.resolution / tileResolution;
+          var depth = depthForZ(tileZ);
+          var _tileTextures = tileTexturesByZ[tileZ];
+
+          for (var _i = 0, _ii = _tileTextures.length; _i < _ii; ++_i) {
+            var _tileTexture = _tileTextures[_i];
+
+            if (!_tileTexture.loaded) {
+              continue;
+            }
+
+            var _tile = _tileTexture.tile;
+            var _tileCoord = _tile.tileCoord;
+
+            var _tileCoordKey = getKey(_tileCoord);
+
+            var tileCenterI = _tileCoord[1];
+            var tileCenterJ = _tileCoord[2];
+            reset(this.tileTransform_);
+            scale$3(this.tileTransform_, 2 / (frameState.size[0] * tileScale / tileWidthWithGutter), -2 / (frameState.size[1] * tileScale / tileWidthWithGutter));
+            rotate$2(this.tileTransform_, viewState.rotation);
+            scale$3(this.tileTransform_, 1, 1 / aspectRatio);
+            translate$1(this.tileTransform_, (tileSize[0] * (tileCenterI - centerI) - gutter) / tileWidthWithGutter, (tileSize[1] * (tileCenterJ - centerJ) - gutter) / tileHeightWithGutter);
+            this.helper.setUniformMatrixValue(Uniforms.TILE_TRANSFORM, fromTransform(this.tempMat4_, this.tileTransform_));
+            this.helper.bindBuffer(_tileTexture.coords);
+            this.helper.bindBuffer(this.indices_);
+            this.helper.enableAttributes(attributeDescriptions);
+            var textureSlot = 0;
+
+            while (textureSlot < _tileTexture.textures.length) {
+              var textureProperty = 'TEXTURE' + textureSlot;
+              var uniformName = "".concat(Uniforms.TILE_TEXTURE_ARRAY, "[").concat(textureSlot, "]");
+              gl.activeTexture(gl[textureProperty]);
+              gl.bindTexture(gl.TEXTURE_2D, _tileTexture.textures[textureSlot]);
+              gl.uniform1i(this.helper.getUniformLocation(uniformName), textureSlot);
+              ++textureSlot;
+            }
+
+            for (var paletteIndex = 0; paletteIndex < this.paletteTextures_.length; ++paletteIndex) {
+              var paletteTexture = this.paletteTextures_[paletteIndex];
+              gl.activeTexture(gl['TEXTURE' + textureSlot]);
+              var texture = paletteTexture.getTexture(gl);
+              gl.bindTexture(gl.TEXTURE_2D, texture);
+              gl.uniform1i(this.helper.getUniformLocation(paletteTexture.name), textureSlot);
+              ++textureSlot;
+            }
+
+            var _alpha = _tileCoordKey in alphaLookup ? alphaLookup[_tileCoordKey] : 1;
+
+            if (_alpha < 1) {
+              frameState.animate = true;
+            }
+
+            this.helper.setUniformFloatValue(Uniforms.TRANSITION_ALPHA, _alpha);
+            this.helper.setUniformFloatValue(Uniforms.DEPTH, depth);
+            this.helper.setUniformFloatValue(Uniforms.TEXTURE_PIXEL_WIDTH, tileWidthWithGutter);
+            this.helper.setUniformFloatValue(Uniforms.TEXTURE_PIXEL_HEIGHT, tileHeightWithGutter);
+            this.helper.setUniformFloatValue(Uniforms.TEXTURE_RESOLUTION, tileResolution);
+            this.helper.setUniformFloatValue(Uniforms.TEXTURE_ORIGIN_X, tileOrigin[0] + tileCenterI * tileSize[0] * tileResolution - gutter * tileResolution);
+            this.helper.setUniformFloatValue(Uniforms.TEXTURE_ORIGIN_Y, tileOrigin[1] - tileCenterJ * tileSize[1] * tileResolution + gutter * tileResolution);
+            var gutterExtent = extent;
+
+            if (gutter > 0) {
+              gutterExtent = tileGrid.getTileCoordExtent(_tileCoord);
+              getIntersection(gutterExtent, extent, gutterExtent);
+            }
+
+            this.helper.setUniformFloatVec4(Uniforms.RENDER_EXTENT, gutterExtent);
+            this.helper.setUniformFloatValue(Uniforms.RESOLUTION, viewState.resolution);
+            this.helper.setUniformFloatValue(Uniforms.ZOOM, viewState.zoom);
+            this.helper.drawElements(0, this.indices_.getSize());
+          }
+        }
+
+        this.helper.finalizeDraw(frameState, this.dispatchPreComposeEvent, this.dispatchPostComposeEvent);
+        var canvas = this.helper.getCanvas();
+        var tileTextureCache = this.tileTextureCache_;
+
+        while (tileTextureCache.canExpireCache()) {
+          var _tileTexture2 = tileTextureCache.pop();
+
+          _tileTexture2.dispose();
+        } // TODO: let the renderers manage their own cache instead of managing the source cache
+
+        /**
+         * Here we unconditionally expire the source cache since the renderer maintains
+         * its own cache.
+         * @param {import("../../Map.js").default} map Map.
+         * @param {import("../../Map.js").FrameState} frameState Frame state.
+         */
+
+
+        var postRenderFunction = function postRenderFunction(map, frameState) {
+          tileSource.updateCacheSize(0.1, frameState.viewState.projection);
+          tileSource.expireCache(frameState.viewState.projection, empty);
+        };
+
+        frameState.postRenderFunctions.push(postRenderFunction);
+        this.postRender(gl, frameState);
+        return canvas;
+      }
+      /**
+       * @param {import("../../pixel.js").Pixel} pixel Pixel.
+       * @return {Uint8ClampedArray|Uint8Array|Float32Array|DataView} Data at the pixel location.
+       */
+
+    }, {
+      key: "getData",
+      value: function getData(pixel) {
+        var gl = this.helper.getGL();
+
+        if (!gl) {
+          return null;
+        }
+
+        var frameState = this.frameState_;
+
+        if (!frameState) {
+          return null;
+        }
+
+        var layer = this.getLayer();
+        var coordinate = apply(frameState.pixelToCoordinateTransform, pixel.slice());
+        var viewState = frameState.viewState;
+        var layerExtent = layer.getExtent();
+
+        if (layerExtent) {
+          if (!containsCoordinate(fromUserExtent(layerExtent, viewState.projection), coordinate)) {
+            return null;
+          }
+        } // determine last source suitable for rendering at coordinate
+
+
+        var sources = layer.getSources(boundingExtent([coordinate]), viewState.resolution);
+        var i, source, tileGrid;
+
+        for (i = sources.length - 1; i >= 0; --i) {
+          source = sources[i];
+
+          if (source.getState() === 'ready') {
+            tileGrid = source.getTileGridForProjection(viewState.projection);
+
+            if (source.getWrapX()) {
+              break;
+            }
+
+            var gridExtent = tileGrid.getExtent();
+
+            if (!gridExtent || containsCoordinate(gridExtent, coordinate)) {
+              break;
+            }
+          }
+        }
+
+        if (i < 0) {
+          return null;
+        }
+
+        var tileTextureCache = this.tileTextureCache_;
+
+        for (var z = tileGrid.getZForResolution(viewState.resolution); z >= tileGrid.getMinZoom(); --z) {
+          var tileCoord = tileGrid.getTileCoordForCoordAndZ(coordinate, z);
+          var cacheKey = getCacheKey(source, tileCoord);
+
+          if (!tileTextureCache.containsKey(cacheKey)) {
+            continue;
+          }
+
+          var tileTexture = tileTextureCache.get(cacheKey);
+          var tile = tileTexture.tile;
+
+          if (tile instanceof ReprojTile && tile.getState() === TileState.EMPTY) {
+            return null;
+          }
+
+          if (!tileTexture.loaded) {
+            continue;
+          }
+
+          var tileOrigin = tileGrid.getOrigin(z);
+          var tileSize = toSize(tileGrid.getTileSize(z));
+          var tileResolution = tileGrid.getResolution(z);
+          var col = (coordinate[0] - tileOrigin[0]) / tileResolution - tileCoord[1] * tileSize[0];
+          var row = (tileOrigin[1] - coordinate[1]) / tileResolution - tileCoord[2] * tileSize[1];
+          return tileTexture.getPixelData(col, row);
+        }
+
+        return null;
+      }
+      /**
+       * Look for tiles covering the provided tile coordinate at an alternate
+       * zoom level.  Loaded tiles will be added to the provided tile texture lookup.
+       * @param {import("../../tilegrid/TileGrid.js").default} tileGrid The tile grid.
+       * @param {import("../../tilecoord.js").TileCoord} tileCoord The target tile coordinate.
+       * @param {number} altZ The alternate zoom level.
+       * @param {Object<number, Array<import("../../webgl/TileTexture.js").default>>} tileTexturesByZ Lookup of
+       * tile textures by zoom level.
+       * @return {boolean} The tile coordinate is covered by loaded tiles at the alternate zoom level.
+       * @private
+       */
+
+    }, {
+      key: "findAltTiles_",
+      value: function findAltTiles_(tileGrid, tileCoord, altZ, tileTexturesByZ) {
+        var tileRange = tileGrid.getTileRangeForTileCoordAndZ(tileCoord, altZ, this.tempTileRange_);
+
+        if (!tileRange) {
+          return false;
+        }
+
+        var covered = true;
+        var tileTextureCache = this.tileTextureCache_;
+        var source = this.getLayer().getRenderSource();
+
+        for (var x = tileRange.minX; x <= tileRange.maxX; ++x) {
+          for (var y = tileRange.minY; y <= tileRange.maxY; ++y) {
+            var cacheKey = getCacheKey(source, [altZ, x, y]);
+            var loaded = false;
+
+            if (tileTextureCache.containsKey(cacheKey)) {
+              var tileTexture = tileTextureCache.get(cacheKey);
+
+              if (tileTexture.loaded) {
+                addTileTextureToLookup(tileTexturesByZ, tileTexture, altZ);
+                loaded = true;
+              }
+            }
+
+            if (!loaded) {
+              covered = false;
+            }
+          }
+        }
+
+        return covered;
+      }
+    }, {
+      key: "clearCache",
+      value: function clearCache() {
+        var tileTextureCache = this.tileTextureCache_;
+        tileTextureCache.forEach(function (tileTexture) {
+          return tileTexture.dispose();
+        });
+        tileTextureCache.clear();
+      }
+    }, {
+      key: "removeHelper",
+      value: function removeHelper() {
+        if (this.helper) {
+          this.clearCache();
+        }
+
+        _get(_getPrototypeOf(WebGLTileLayerRenderer.prototype), "removeHelper", this).call(this);
+      }
+      /**
+       * Clean up.
+       */
+
+    }, {
+      key: "disposeInternal",
+      value: function disposeInternal() {
+        var helper = this.helper;
+
+        if (helper) {
+          var gl = helper.getGL();
+          gl.deleteProgram(this.program_);
+          delete this.program_;
+          helper.deleteBuffer(this.indices_);
+        }
+
+        _get(_getPrototypeOf(WebGLTileLayerRenderer.prototype), "disposeInternal", this).call(this);
+
+        delete this.indices_;
+        delete this.tileTextureCache_;
+        delete this.frameState_;
+      }
+    }]);
+
+    return WebGLTileLayerRenderer;
+  }(WebGLLayerRenderer);
+
+  /**
+   * Operators and utilities used for style expressions
+   * @module ol/style/expressions
+   */
+  /**
+   * Base type used for literal style parameters; can be a number literal or the output of an operator,
+   * which in turns takes {@link import("./expressions.js").ExpressionValue} arguments.
+   *
+   * The following operators can be used:
+   *
+   * * Reading operators:
+   *   * `['band', bandIndex, xOffset, yOffset]` For tile layers only. Fetches pixel values from band
+   *     `bandIndex` of the source's data. The first `bandIndex` of the source data is `1`. Fetched values
+   *     are in the 0..1 range. {@link import("../source/TileImage.js").default} sources have 4 bands: red,
+   *     green, blue and alpha. {@link import("../source/DataTile.js").default} sources can have any number
+   *     of bands, depending on the underlying data source and
+   *     {@link import("../source/GeoTIFF.js").Options configuration}. `xOffset` and `yOffset` are optional
+   *     and allow specifying pixel offsets for x and y. This is used for sampling data from neighboring pixels.
+   *   * `['get', 'attributeName']` fetches a feature attribute (it will be prefixed by `a_` in the shader)
+   *     Note: those will be taken from the attributes provided to the renderer
+   *   * `['resolution']` returns the current resolution
+   *   * `['time']` returns the time in seconds since the creation of the layer
+   *   * `['var', 'varName']` fetches a value from the style variables, or 0 if undefined
+   *   * `['zoom']` returns the current zoom level
+   *
+   * * Math operators:
+   *   * `['*', value1, value2]` multiplies `value1` by `value2`
+   *   * `['/', value1, value2]` divides `value1` by `value2`
+   *   * `['+', value1, value2]` adds `value1` and `value2`
+   *   * `['-', value1, value2]` subtracts `value2` from `value1`
+   *   * `['clamp', value, low, high]` clamps `value` between `low` and `high`
+   *   * `['%', value1, value2]` returns the result of `value1 % value2` (modulo)
+   *   * `['^', value1, value2]` returns the value of `value1` raised to the `value2` power
+   *   * `['abs', value1]` returns the absolute value of `value1`
+   *   * `['floor', value1]` returns the nearest integer less than or equal to `value1`
+   *   * `['round', value1]` returns the nearest integer to `value1`
+   *   * `['ceil', value1]` returns the nearest integer greater than or equal to `value1`
+   *   * `['sin', value1]` returns the sine of `value1`
+   *   * `['cos', value1]` returns the cosine of `value1`
+   *   * `['atan', value1, value2]` returns `atan2(value1, value2)`. If `value2` is not provided, returns `atan(value1)`
+   *
+   * * Transform operators:
+   *   * `['case', condition1, output1, ...conditionN, outputN, fallback]` selects the first output whose corresponding
+   *     condition evaluates to `true`. If no match is found, returns the `fallback` value.
+   *     All conditions should be `boolean`, output and fallback can be any kind.
+   *   * `['match', input, match1, output1, ...matchN, outputN, fallback]` compares the `input` value against all
+   *     provided `matchX` values, returning the output associated with the first valid match. If no match is found,
+   *     returns the `fallback` value.
+   *     `input` and `matchX` values must all be of the same type, and can be `number` or `string`. `outputX` and
+   *     `fallback` values must be of the same type, and can be of any kind.
+   *   * `['interpolate', interpolation, input, stop1, output1, ...stopN, outputN]` returns a value by interpolating between
+   *     pairs of inputs and outputs; `interpolation` can either be `['linear']` or `['exponential', base]` where `base` is
+   *     the rate of increase from stop A to stop B (i.e. power to which the interpolation ratio is raised); a value
+   *     of 1 is equivalent to `['linear']`.
+   *     `input` and `stopX` values must all be of type `number`. `outputX` values can be `number` or `color` values.
+   *     Note: `input` will be clamped between `stop1` and `stopN`, meaning that all output values will be comprised
+   *     between `output1` and `outputN`.
+   *
+   * * Logical operators:
+   *   * `['<', value1, value2]` returns `true` if `value1` is strictly lower than `value2`, or `false` otherwise.
+   *   * `['<=', value1, value2]` returns `true` if `value1` is lower than or equals `value2`, or `false` otherwise.
+   *   * `['>', value1, value2]` returns `true` if `value1` is strictly greater than `value2`, or `false` otherwise.
+   *   * `['>=', value1, value2]` returns `true` if `value1` is greater than or equals `value2`, or `false` otherwise.
+   *   * `['==', value1, value2]` returns `true` if `value1` equals `value2`, or `false` otherwise.
+   *   * `['!=', value1, value2]` returns `true` if `value1` does not equal `value2`, or `false` otherwise.
+   *   * `['!', value1]` returns `false` if `value1` is `true` or greater than `0`, or `true` otherwise.
+   *   * `['all', value1, value2, ...]` returns `true` if all the inputs are `true`, `false` otherwise.
+   *   * `['any', value1, value2, ...]` returns `true` if any of the inputs are `true`, `false` otherwise.
+   *   * `['between', value1, value2, value3]` returns `true` if `value1` is contained between `value2` and `value3`
+   *     (inclusively), or `false` otherwise.
+   *
+   * * Conversion operators:
+   *   * `['array', value1, ...valueN]` creates a numerical array from `number` values; please note that the amount of
+   *     values can currently only be 2, 3 or 4.
+   *   * `['color', red, green, blue, alpha]` creates a `color` value from `number` values; the `alpha` parameter is
+   *     optional; if not specified, it will be set to 1.
+   *     Note: `red`, `green` and `blue` components must be values between 0 and 255; `alpha` between 0 and 1.
+   *   * `['palette', index, colors]` picks a `color` value from an array of colors using the given index; the `index`
+   *     expression must evaluate to a number; the items in the `colors` array must be strings with hex colors
+   *     (e.g. `'#86A136'`), colors using the rgba[a] functional notation (e.g. `'rgb(134, 161, 54)'` or `'rgba(134, 161, 54, 1)'`),
+   *     named colors (e.g. `'red'`), or array literals with 3 ([r, g, b]) or 4 ([r, g, b, a]) values (with r, g, and b
+   *     in the 0-255 range and a in the 0-1 range).
+   *
+   * Values can either be literals or another operator, as they will be evaluated recursively.
+   * Literal values can be of the following types:
+   * * `boolean`
+   * * `number`
+   * * `string`
+   * * {@link module:ol/color~Color}
+   *
+   * @typedef {Array<*>|import("../color.js").Color|string|number|boolean} ExpressionValue
+   * @api
+   */
+
+  /**
+   * Possible inferred types from a given value or expression.
+   * Note: these are binary flags.
+   * @enum {number}
+   */
+
+  var ValueTypes = {
+    NUMBER: 1,
+    STRING: 2,
+    COLOR: 4,
+    BOOLEAN: 8,
+    NUMBER_ARRAY: 16,
+    ANY: 31,
+    NONE: 0
+  };
+  /**
+   * An operator declaration must contain two methods: `getReturnType` which returns a type based on
+   * the operator arguments, and `toGlsl` which returns a GLSL-compatible string.
+   * Note: both methods can process arguments recursively.
+   * @typedef {Object} Operator
+   * @property {function(Array<ExpressionValue>): ValueTypes|number} getReturnType Returns one or several types
+   * @property {function(ParsingContext, Array<ExpressionValue>, ValueTypes=): string} toGlsl Returns a GLSL-compatible string
+   * Note: takes in an optional type hint as 3rd parameter
+   */
+
+  /**
+   * Operator declarations
+   * @type {Object<string, Operator>}
+   */
+
+  var Operators = {};
+  /**
+   * Returns the possible types for a given value (each type being a binary flag)
+   * To test a value use e.g. `getValueType(v) & ValueTypes.BOOLEAN`
+   * @param {ExpressionValue} value Value
+   * @return {ValueTypes|number} Type or types inferred from the value
+   */
+
+  function getValueType(value) {
+    if (typeof value === 'number') {
+      return ValueTypes.NUMBER;
+    }
+
+    if (typeof value === 'boolean') {
+      return ValueTypes.BOOLEAN;
+    }
+
+    if (typeof value === 'string') {
+      if (isStringColor(value)) {
+        return ValueTypes.COLOR | ValueTypes.STRING;
+      }
+
+      return ValueTypes.STRING;
+    }
+
+    if (!Array.isArray(value)) {
+      throw new Error("Unhandled value type: ".concat(JSON.stringify(value)));
+    }
+
+    var valueArr =
+    /** @type {Array<*>} */
+    value;
+    var onlyNumbers = valueArr.every(function (v) {
+      return typeof v === 'number';
+    });
+
+    if (onlyNumbers) {
+      if (valueArr.length === 3 || valueArr.length === 4) {
+        return ValueTypes.COLOR | ValueTypes.NUMBER_ARRAY;
+      }
+
+      return ValueTypes.NUMBER_ARRAY;
+    }
+
+    if (typeof valueArr[0] !== 'string') {
+      throw new Error("Expected an expression operator but received: ".concat(JSON.stringify(valueArr)));
+    }
+
+    var operator = Operators[valueArr[0]];
+
+    if (operator === undefined) {
+      throw new Error("Unrecognized expression operator: ".concat(JSON.stringify(valueArr)));
+    }
+
+    return operator.getReturnType(valueArr.slice(1));
+  }
+  /**
+   * Checks if only one value type is enabled in the input number.
+   * @param {ValueTypes|number} valueType Number containing value type binary flags
+   * @return {boolean} True if only one type flag is enabled, false if zero or multiple
+   */
+
+  function isTypeUnique(valueType) {
+    return Math.log2(valueType) % 1 === 0;
+  }
+  /**
+   * Context available during the parsing of an expression.
+   * @typedef {Object} ParsingContext
+   * @property {boolean} [inFragmentShader] If false, means the expression output should be made for a vertex shader
+   * @property {Array<string>} variables List of variables used in the expression; contains **unprefixed names**
+   * @property {Array<string>} attributes List of attributes used in the expression; contains **unprefixed names**
+   * @property {Object<string, number>} stringLiteralsMap This object maps all encountered string values to a number
+   * @property {Object<string, string>} functions Lookup of functions used by the style.
+   * @property {number} [bandCount] Number of bands per pixel.
+   * @property {Array<PaletteTexture>} [paletteTextures] List of palettes used by the style.
+   */
+
+  /**
+   * Will return the number as a float with a dot separator, which is required by GLSL.
+   * @param {number} v Numerical value.
+   * @return {string} The value as string.
+   */
+
+  function numberToGlsl(v) {
+    var s = v.toString();
+    return s.includes('.') ? s : s + '.0';
+  }
+  /**
+   * Will return the number array as a float with a dot separator, concatenated with ', '.
+   * @param {Array<number>} array Numerical values array.
+   * @return {string} The array as a vector, e. g.: `vec3(1.0, 2.0, 3.0)`.
+   */
+
+  function arrayToGlsl(array) {
+    if (array.length < 2 || array.length > 4) {
+      throw new Error('`formatArray` can only output `vec2`, `vec3` or `vec4` arrays.');
+    }
+
+    return "vec".concat(array.length, "(").concat(array.map(numberToGlsl).join(', '), ")");
+  }
+  /**
+   * Will normalize and converts to string a `vec4` color array compatible with GLSL.
+   * @param {string|import("../color.js").Color} color Color either in string format or [r, g, b, a] array format,
+   * with RGB components in the 0..255 range and the alpha component in the 0..1 range.
+   * Note that the final array will always have 4 components.
+   * @return {string} The color expressed in the `vec4(1.0, 1.0, 1.0, 1.0)` form.
+   */
+
+  function colorToGlsl(color) {
+    var array = asArray(color).slice();
+
+    if (array.length < 4) {
+      array.push(1);
+    }
+
+    return arrayToGlsl(array.map(function (c, i) {
+      return i < 3 ? c / 255 : c;
+    }));
+  }
+  /**
+   * Returns a stable equivalent number for the string literal.
+   * @param {ParsingContext} context Parsing context
+   * @param {string} string String literal value
+   * @return {number} Number equivalent
+   */
+
+  function getStringNumberEquivalent(context, string) {
+    if (context.stringLiteralsMap[string] === undefined) {
+      context.stringLiteralsMap[string] = Object.keys(context.stringLiteralsMap).length;
+    }
+
+    return context.stringLiteralsMap[string];
+  }
+  /**
+   * Returns a stable equivalent number for the string literal, for use in shaders. This number is then
+   * converted to be a GLSL-compatible string.
+   * @param {ParsingContext} context Parsing context
+   * @param {string} string String literal value
+   * @return {string} GLSL-compatible string containing a number
+   */
+
+  function stringToGlsl(context, string) {
+    return numberToGlsl(getStringNumberEquivalent(context, string));
+  }
+  /**
+   * Recursively parses a style expression and outputs a GLSL-compatible string. Takes in a parsing context that
+   * will be read and modified during the parsing operation.
+   * @param {ParsingContext} context Parsing context
+   * @param {ExpressionValue} value Value
+   * @param {ValueTypes|number} [typeHint] Hint for the expected final type (can be several types combined)
+   * @return {string} GLSL-compatible output
+   */
+
+  function expressionToGlsl(context, value, typeHint) {
+    // operator
+    if (Array.isArray(value) && typeof value[0] === 'string') {
+      var operator = Operators[value[0]];
+
+      if (operator === undefined) {
+        throw new Error("Unrecognized expression operator: ".concat(JSON.stringify(value)));
+      }
+
+      return operator.toGlsl(context, value.slice(1), typeHint);
+    }
+
+    var valueType = getValueType(value);
+
+    if ((valueType & ValueTypes.NUMBER) > 0) {
+      return numberToGlsl(
+      /** @type {number} */
+      value);
+    }
+
+    if ((valueType & ValueTypes.BOOLEAN) > 0) {
+      return value.toString();
+    }
+
+    if ((valueType & ValueTypes.STRING) > 0 && (typeHint === undefined || typeHint == ValueTypes.STRING)) {
+      return stringToGlsl(context, value.toString());
+    }
+
+    if ((valueType & ValueTypes.COLOR) > 0 && (typeHint === undefined || typeHint == ValueTypes.COLOR)) {
+      return colorToGlsl(
+      /** @type {Array<number> | string} */
+      value);
+    }
+
+    if ((valueType & ValueTypes.NUMBER_ARRAY) > 0) {
+      return arrayToGlsl(
+      /** @type {Array<number>} */
+      value);
+    }
+
+    throw new Error("Unexpected expression ".concat(value, " (expected type ").concat(typeHint, ")"));
+  }
+
+  function assertNumber(value) {
+    if (!(getValueType(value) & ValueTypes.NUMBER)) {
+      throw new Error("A numeric value was expected, got ".concat(JSON.stringify(value), " instead"));
+    }
+  }
+
+  function assertNumbers(values) {
+    for (var i = 0; i < values.length; i++) {
+      assertNumber(values[i]);
+    }
+  }
+
+  function assertString(value) {
+    if (!(getValueType(value) & ValueTypes.STRING)) {
+      throw new Error("A string value was expected, got ".concat(JSON.stringify(value), " instead"));
+    }
+  }
+
+  function assertBoolean(value) {
+    if (!(getValueType(value) & ValueTypes.BOOLEAN)) {
+      throw new Error("A boolean value was expected, got ".concat(JSON.stringify(value), " instead"));
+    }
+  }
+
+  function assertArgsCount(args, count) {
+    if (args.length !== count) {
+      throw new Error("Exactly ".concat(count, " arguments were expected, got ").concat(args.length, " instead"));
+    }
+  }
+
+  function assertArgsMinCount(args, count) {
+    if (args.length < count) {
+      throw new Error("At least ".concat(count, " arguments were expected, got ").concat(args.length, " instead"));
+    }
+  }
+
+  function assertArgsMaxCount(args, count) {
+    if (args.length > count) {
+      throw new Error("At most ".concat(count, " arguments were expected, got ").concat(args.length, " instead"));
+    }
+  }
+
+  function assertArgsEven(args) {
+    if (args.length % 2 !== 0) {
+      throw new Error("An even amount of arguments was expected, got ".concat(args, " instead"));
+    }
+  }
+
+  function assertArgsOdd(args) {
+    if (args.length % 2 === 0) {
+      throw new Error("An odd amount of arguments was expected, got ".concat(args, " instead"));
+    }
+  }
+
+  function assertUniqueInferredType(args, types) {
+    if (!isTypeUnique(types)) {
+      throw new Error("Could not infer only one type from the following expression: ".concat(JSON.stringify(args)));
+    }
+  }
+
+  Operators['get'] = {
+    getReturnType: function getReturnType(args) {
+      return ValueTypes.ANY;
+    },
+    toGlsl: function toGlsl(context, args) {
+      assertArgsCount(args, 1);
+      assertString(args[0]);
+      var value = args[0].toString();
+
+      if (!context.attributes.includes(value)) {
+        context.attributes.push(value);
+      }
+
+      var prefix = context.inFragmentShader ? 'v_' : 'a_';
+      return prefix + value;
+    }
+  };
+  /**
+   * Get the uniform name given a variable name.
+   * @param {string} variableName The variable name.
+   * @return {string} The uniform name.
+   */
+
+  function uniformNameForVariable(variableName) {
+    return 'u_var_' + variableName;
+  }
+  Operators['var'] = {
+    getReturnType: function getReturnType(args) {
+      return ValueTypes.ANY;
+    },
+    toGlsl: function toGlsl(context, args) {
+      assertArgsCount(args, 1);
+      assertString(args[0]);
+      var value = args[0].toString();
+
+      if (!context.variables.includes(value)) {
+        context.variables.push(value);
+      }
+
+      return uniformNameForVariable(value);
+    }
+  };
+  var PALETTE_TEXTURE_ARRAY = 'u_paletteTextures'; // ['palette', index, colors]
+
+  Operators['palette'] = {
+    getReturnType: function getReturnType(args) {
+      return ValueTypes.COLOR;
+    },
+    toGlsl: function toGlsl(context, args) {
+      assertArgsCount(args, 2);
+      assertNumber(args[0]);
+      var index = expressionToGlsl(context, args[0]);
+      var colors = args[1];
+
+      if (!Array.isArray(colors)) {
+        throw new Error('The second argument of palette must be an array');
+      }
+
+      var numColors = colors.length;
+      var palette = new Uint8Array(numColors * 4);
+
+      for (var i = 0; i < numColors; i++) {
+        var candidate = colors[i];
+        /**
+         * @type {import('../color.js').Color}
+         */
+
+        var color = void 0;
+
+        if (typeof candidate === 'string') {
+          color = fromString(candidate);
+        } else {
+          if (!Array.isArray(candidate)) {
+            throw new Error('The second argument of palette must be an array of strings or colors');
+          }
+
+          var length = candidate.length;
+
+          if (length === 4) {
+            color = candidate;
+          } else {
+            if (length !== 3) {
+              throw new Error("Expected palette color to have 3 or 4 values, got ".concat(length));
+            }
+
+            color = [candidate[0], candidate[1], candidate[2], 1];
+          }
+        }
+
+        var offset = i * 4;
+        palette[offset] = color[0];
+        palette[offset + 1] = color[1];
+        palette[offset + 2] = color[2];
+        palette[offset + 3] = color[3] * 255;
+      }
+
+      if (!context.paletteTextures) {
+        context.paletteTextures = [];
+      }
+
+      var paletteName = "".concat(PALETTE_TEXTURE_ARRAY, "[").concat(context.paletteTextures.length, "]");
+      var paletteTexture = new PaletteTexture(paletteName, palette);
+      context.paletteTextures.push(paletteTexture);
+      return "texture2D(".concat(paletteName, ", vec2((").concat(index, " + 0.5) / ").concat(numColors, ".0, 0.5))");
+    }
+  };
+  var GET_BAND_VALUE_FUNC = 'getBandValue';
+  Operators['band'] = {
+    getReturnType: function getReturnType(args) {
+      return ValueTypes.NUMBER;
+    },
+    toGlsl: function toGlsl(context, args) {
+      assertArgsMinCount(args, 1);
+      assertArgsMaxCount(args, 3);
+      var band = args[0];
+
+      if (!(GET_BAND_VALUE_FUNC in context.functions)) {
+        var ifBlocks = '';
+        var bandCount = context.bandCount || 1;
+
+        for (var i = 0; i < bandCount; i++) {
+          var colorIndex = Math.floor(i / 4);
+          var bandIndex = i % 4;
+
+          if (i === bandCount - 1 && bandIndex === 1) {
+            // LUMINANCE_ALPHA - band 1 assigned to rgb and band 2 assigned to alpha
+            bandIndex = 3;
+          }
+
+          var textureName = "".concat(Uniforms.TILE_TEXTURE_ARRAY, "[").concat(colorIndex, "]");
+          ifBlocks += "\n          if (band == ".concat(i + 1, ".0) {\n            return texture2D(").concat(textureName, ", v_textureCoord + vec2(dx, dy))[").concat(bandIndex, "];\n          }\n        ");
+        }
+
+        context.functions[GET_BAND_VALUE_FUNC] = "\n        float getBandValue(float band, float xOffset, float yOffset) {\n          float dx = xOffset / ".concat(Uniforms.TEXTURE_PIXEL_WIDTH, ";\n          float dy = yOffset / ").concat(Uniforms.TEXTURE_PIXEL_HEIGHT, ";\n          ").concat(ifBlocks, "\n        }\n      ");
+      }
+
+      var bandExpression = expressionToGlsl(context, band);
+      var xOffsetExpression = expressionToGlsl(context, args[1] || 0);
+      var yOffsetExpression = expressionToGlsl(context, args[2] || 0);
+      return "".concat(GET_BAND_VALUE_FUNC, "(").concat(bandExpression, ", ").concat(xOffsetExpression, ", ").concat(yOffsetExpression, ")");
+    }
+  };
+  Operators['time'] = {
+    getReturnType: function getReturnType(args) {
+      return ValueTypes.NUMBER;
+    },
+    toGlsl: function toGlsl(context, args) {
+      assertArgsCount(args, 0);
+      return 'u_time';
+    }
+  };
+  Operators['zoom'] = {
+    getReturnType: function getReturnType(args) {
+      return ValueTypes.NUMBER;
+    },
+    toGlsl: function toGlsl(context, args) {
+      assertArgsCount(args, 0);
+      return 'u_zoom';
+    }
+  };
+  Operators['resolution'] = {
+    getReturnType: function getReturnType(args) {
+      return ValueTypes.NUMBER;
+    },
+    toGlsl: function toGlsl(context, args) {
+      assertArgsCount(args, 0);
+      return 'u_resolution';
+    }
+  };
+  Operators['*'] = {
+    getReturnType: function getReturnType(args) {
+      return ValueTypes.NUMBER;
+    },
+    toGlsl: function toGlsl(context, args) {
+      assertArgsCount(args, 2);
+      assertNumbers(args);
+      return "(".concat(expressionToGlsl(context, args[0]), " * ").concat(expressionToGlsl(context, args[1]), ")");
+    }
+  };
+  Operators['/'] = {
+    getReturnType: function getReturnType(args) {
+      return ValueTypes.NUMBER;
+    },
+    toGlsl: function toGlsl(context, args) {
+      assertArgsCount(args, 2);
+      assertNumbers(args);
+      return "(".concat(expressionToGlsl(context, args[0]), " / ").concat(expressionToGlsl(context, args[1]), ")");
+    }
+  };
+  Operators['+'] = {
+    getReturnType: function getReturnType(args) {
+      return ValueTypes.NUMBER;
+    },
+    toGlsl: function toGlsl(context, args) {
+      assertArgsCount(args, 2);
+      assertNumbers(args);
+      return "(".concat(expressionToGlsl(context, args[0]), " + ").concat(expressionToGlsl(context, args[1]), ")");
+    }
+  };
+  Operators['-'] = {
+    getReturnType: function getReturnType(args) {
+      return ValueTypes.NUMBER;
+    },
+    toGlsl: function toGlsl(context, args) {
+      assertArgsCount(args, 2);
+      assertNumbers(args);
+      return "(".concat(expressionToGlsl(context, args[0]), " - ").concat(expressionToGlsl(context, args[1]), ")");
+    }
+  };
+  Operators['clamp'] = {
+    getReturnType: function getReturnType(args) {
+      return ValueTypes.NUMBER;
+    },
+    toGlsl: function toGlsl(context, args) {
+      assertArgsCount(args, 3);
+      assertNumbers(args);
+      var min = expressionToGlsl(context, args[1]);
+      var max = expressionToGlsl(context, args[2]);
+      return "clamp(".concat(expressionToGlsl(context, args[0]), ", ").concat(min, ", ").concat(max, ")");
+    }
+  };
+  Operators['%'] = {
+    getReturnType: function getReturnType(args) {
+      return ValueTypes.NUMBER;
+    },
+    toGlsl: function toGlsl(context, args) {
+      assertArgsCount(args, 2);
+      assertNumbers(args);
+      return "mod(".concat(expressionToGlsl(context, args[0]), ", ").concat(expressionToGlsl(context, args[1]), ")");
+    }
+  };
+  Operators['^'] = {
+    getReturnType: function getReturnType(args) {
+      return ValueTypes.NUMBER;
+    },
+    toGlsl: function toGlsl(context, args) {
+      assertArgsCount(args, 2);
+      assertNumbers(args);
+      return "pow(".concat(expressionToGlsl(context, args[0]), ", ").concat(expressionToGlsl(context, args[1]), ")");
+    }
+  };
+  Operators['abs'] = {
+    getReturnType: function getReturnType(args) {
+      return ValueTypes.NUMBER;
+    },
+    toGlsl: function toGlsl(context, args) {
+      assertArgsCount(args, 1);
+      assertNumbers(args);
+      return "abs(".concat(expressionToGlsl(context, args[0]), ")");
+    }
+  };
+  Operators['floor'] = {
+    getReturnType: function getReturnType(args) {
+      return ValueTypes.NUMBER;
+    },
+    toGlsl: function toGlsl(context, args) {
+      assertArgsCount(args, 1);
+      assertNumbers(args);
+      return "floor(".concat(expressionToGlsl(context, args[0]), ")");
+    }
+  };
+  Operators['round'] = {
+    getReturnType: function getReturnType(args) {
+      return ValueTypes.NUMBER;
+    },
+    toGlsl: function toGlsl(context, args) {
+      assertArgsCount(args, 1);
+      assertNumbers(args);
+      return "floor(".concat(expressionToGlsl(context, args[0]), " + 0.5)");
+    }
+  };
+  Operators['ceil'] = {
+    getReturnType: function getReturnType(args) {
+      return ValueTypes.NUMBER;
+    },
+    toGlsl: function toGlsl(context, args) {
+      assertArgsCount(args, 1);
+      assertNumbers(args);
+      return "ceil(".concat(expressionToGlsl(context, args[0]), ")");
+    }
+  };
+  Operators['sin'] = {
+    getReturnType: function getReturnType(args) {
+      return ValueTypes.NUMBER;
+    },
+    toGlsl: function toGlsl(context, args) {
+      assertArgsCount(args, 1);
+      assertNumbers(args);
+      return "sin(".concat(expressionToGlsl(context, args[0]), ")");
+    }
+  };
+  Operators['cos'] = {
+    getReturnType: function getReturnType(args) {
+      return ValueTypes.NUMBER;
+    },
+    toGlsl: function toGlsl(context, args) {
+      assertArgsCount(args, 1);
+      assertNumbers(args);
+      return "cos(".concat(expressionToGlsl(context, args[0]), ")");
+    }
+  };
+  Operators['atan'] = {
+    getReturnType: function getReturnType(args) {
+      return ValueTypes.NUMBER;
+    },
+    toGlsl: function toGlsl(context, args) {
+      assertArgsMinCount(args, 1);
+      assertArgsMaxCount(args, 2);
+      assertNumbers(args);
+      return args.length === 2 ? "atan(".concat(expressionToGlsl(context, args[0]), ", ").concat(expressionToGlsl(context, args[1]), ")") : "atan(".concat(expressionToGlsl(context, args[0]), ")");
+    }
+  };
+  Operators['>'] = {
+    getReturnType: function getReturnType(args) {
+      return ValueTypes.BOOLEAN;
+    },
+    toGlsl: function toGlsl(context, args) {
+      assertArgsCount(args, 2);
+      assertNumbers(args);
+      return "(".concat(expressionToGlsl(context, args[0]), " > ").concat(expressionToGlsl(context, args[1]), ")");
+    }
+  };
+  Operators['>='] = {
+    getReturnType: function getReturnType(args) {
+      return ValueTypes.BOOLEAN;
+    },
+    toGlsl: function toGlsl(context, args) {
+      assertArgsCount(args, 2);
+      assertNumbers(args);
+      return "(".concat(expressionToGlsl(context, args[0]), " >= ").concat(expressionToGlsl(context, args[1]), ")");
+    }
+  };
+  Operators['<'] = {
+    getReturnType: function getReturnType(args) {
+      return ValueTypes.BOOLEAN;
+    },
+    toGlsl: function toGlsl(context, args) {
+      assertArgsCount(args, 2);
+      assertNumbers(args);
+      return "(".concat(expressionToGlsl(context, args[0]), " < ").concat(expressionToGlsl(context, args[1]), ")");
+    }
+  };
+  Operators['<='] = {
+    getReturnType: function getReturnType(args) {
+      return ValueTypes.BOOLEAN;
+    },
+    toGlsl: function toGlsl(context, args) {
+      assertArgsCount(args, 2);
+      assertNumbers(args);
+      return "(".concat(expressionToGlsl(context, args[0]), " <= ").concat(expressionToGlsl(context, args[1]), ")");
+    }
+  };
+
+  function getEqualOperator(operator) {
+    return {
+      getReturnType: function getReturnType(args) {
+        return ValueTypes.BOOLEAN;
+      },
+      toGlsl: function toGlsl(context, args) {
+        assertArgsCount(args, 2); // find common type
+
+        var type = ValueTypes.ANY;
+
+        for (var i = 0; i < args.length; i++) {
+          type &= getValueType(args[i]);
+        }
+
+        if (type === ValueTypes.NONE) {
+          throw new Error("All arguments should be of compatible type, got ".concat(JSON.stringify(args), " instead"));
+        } // Since it's not possible to have color types here, we can leave it out
+        // This fixes issues in case the value type is ambiguously detected as a color (e.g. the string 'red')
+
+
+        type &= ~ValueTypes.COLOR;
+        return "(".concat(expressionToGlsl(context, args[0], type), " ").concat(operator, " ").concat(expressionToGlsl(context, args[1], type), ")");
+      }
+    };
+  }
+
+  Operators['=='] = getEqualOperator('==');
+  Operators['!='] = getEqualOperator('!=');
+  Operators['!'] = {
+    getReturnType: function getReturnType(args) {
+      return ValueTypes.BOOLEAN;
+    },
+    toGlsl: function toGlsl(context, args) {
+      assertArgsCount(args, 1);
+      assertBoolean(args[0]);
+      return "(!".concat(expressionToGlsl(context, args[0]), ")");
+    }
+  };
+
+  function getDecisionOperator(operator) {
+    return {
+      getReturnType: function getReturnType(args) {
+        return ValueTypes.BOOLEAN;
+      },
+      toGlsl: function toGlsl(context, args) {
+        assertArgsMinCount(args, 2);
+
+        for (var i = 0; i < args.length; i++) {
+          assertBoolean(args[i]);
+        }
+
+        var result = '';
+        result = args.map(function (arg) {
+          return expressionToGlsl(context, arg);
+        }).join(" ".concat(operator, " "));
+        result = "(".concat(result, ")");
+        return result;
+      }
+    };
+  }
+
+  Operators['all'] = getDecisionOperator('&&');
+  Operators['any'] = getDecisionOperator('||');
+  Operators['between'] = {
+    getReturnType: function getReturnType(args) {
+      return ValueTypes.BOOLEAN;
+    },
+    toGlsl: function toGlsl(context, args) {
+      assertArgsCount(args, 3);
+      assertNumbers(args);
+      var min = expressionToGlsl(context, args[1]);
+      var max = expressionToGlsl(context, args[2]);
+      var value = expressionToGlsl(context, args[0]);
+      return "(".concat(value, " >= ").concat(min, " && ").concat(value, " <= ").concat(max, ")");
+    }
+  };
+  Operators['array'] = {
+    getReturnType: function getReturnType(args) {
+      return ValueTypes.NUMBER_ARRAY;
+    },
+    toGlsl: function toGlsl(context, args) {
+      assertArgsMinCount(args, 2);
+      assertArgsMaxCount(args, 4);
+      assertNumbers(args);
+      var parsedArgs = args.map(function (val) {
+        return expressionToGlsl(context, val, ValueTypes.NUMBER);
+      });
+      return "vec".concat(args.length, "(").concat(parsedArgs.join(', '), ")");
+    }
+  };
+  Operators['color'] = {
+    getReturnType: function getReturnType(args) {
+      return ValueTypes.COLOR;
+    },
+    toGlsl: function toGlsl(context, args) {
+      assertArgsMinCount(args, 3);
+      assertArgsMaxCount(args, 4);
+      assertNumbers(args);
+      var array =
+      /** @type {Array<number>} */
+      args;
+
+      if (args.length === 3) {
+        array.push(1);
+      }
+
+      var parsedArgs = args.map(function (val, i) {
+        return expressionToGlsl(context, val, ValueTypes.NUMBER) + (i < 3 ? ' / 255.0' : '');
+      });
+      return "vec".concat(args.length, "(").concat(parsedArgs.join(', '), ")");
+    }
+  };
+  Operators['interpolate'] = {
+    getReturnType: function getReturnType(args) {
+      var type = ValueTypes.COLOR | ValueTypes.NUMBER;
+
+      for (var i = 3; i < args.length; i += 2) {
+        type = type & getValueType(args[i]);
+      }
+
+      return type;
+    },
+    toGlsl: function toGlsl(context, args, typeHint) {
+      assertArgsEven(args);
+      assertArgsMinCount(args, 6); // validate interpolation type
+
+      var type = args[0];
+      var interpolation;
+
+      switch (type[0]) {
+        case 'linear':
+          interpolation = 1;
+          break;
+
+        case 'exponential':
+          interpolation = type[1];
+          break;
+
+        default:
+          interpolation = null;
+      }
+
+      if (!interpolation) {
+        throw new Error("Invalid interpolation type for \"interpolate\" operator, received: ".concat(JSON.stringify(type)));
+      } // compute input/output types
+
+
+      typeHint = typeHint !== undefined ? typeHint : ValueTypes.ANY;
+      var outputType = Operators['interpolate'].getReturnType(args) & typeHint;
+      assertUniqueInferredType(args, outputType);
+      var input = expressionToGlsl(context, args[1]);
+      var exponent = numberToGlsl(interpolation);
+      var result = '';
+
+      for (var i = 2; i < args.length - 2; i += 2) {
+        var stop1 = expressionToGlsl(context, args[i]);
+        var output1 = result || expressionToGlsl(context, args[i + 1], outputType);
+        var stop2 = expressionToGlsl(context, args[i + 2]);
+        var output2 = expressionToGlsl(context, args[i + 3], outputType);
+        result = "mix(".concat(output1, ", ").concat(output2, ", pow(clamp((").concat(input, " - ").concat(stop1, ") / (").concat(stop2, " - ").concat(stop1, "), 0.0, 1.0), ").concat(exponent, "))");
+      }
+
+      return result;
+    }
+  };
+  Operators['match'] = {
+    getReturnType: function getReturnType(args) {
+      var type = ValueTypes.ANY;
+
+      for (var i = 2; i < args.length; i += 2) {
+        type = type & getValueType(args[i]);
+      }
+
+      type = type & getValueType(args[args.length - 1]);
+      return type;
+    },
+    toGlsl: function toGlsl(context, args, typeHint) {
+      assertArgsEven(args);
+      assertArgsMinCount(args, 4);
+      typeHint = typeHint !== undefined ? typeHint : ValueTypes.ANY;
+      var outputType = Operators['match'].getReturnType(args) & typeHint;
+      assertUniqueInferredType(args, outputType);
+      var input = expressionToGlsl(context, args[0]);
+      var fallback = expressionToGlsl(context, args[args.length - 1], outputType);
+      var result = null;
+
+      for (var i = args.length - 3; i >= 1; i -= 2) {
+        var match = expressionToGlsl(context, args[i]);
+        var output = expressionToGlsl(context, args[i + 1], outputType);
+        result = "(".concat(input, " == ").concat(match, " ? ").concat(output, " : ").concat(result || fallback, ")");
+      }
+
+      return result;
+    }
+  };
+  Operators['case'] = {
+    getReturnType: function getReturnType(args) {
+      var type = ValueTypes.ANY;
+
+      for (var i = 1; i < args.length; i += 2) {
+        type = type & getValueType(args[i]);
+      }
+
+      type = type & getValueType(args[args.length - 1]);
+      return type;
+    },
+    toGlsl: function toGlsl(context, args, typeHint) {
+      assertArgsOdd(args);
+      assertArgsMinCount(args, 3);
+      typeHint = typeHint !== undefined ? typeHint : ValueTypes.ANY;
+      var outputType = Operators['case'].getReturnType(args) & typeHint;
+      assertUniqueInferredType(args, outputType);
+
+      for (var i = 0; i < args.length - 1; i += 2) {
+        assertBoolean(args[i]);
+      }
+
+      var fallback = expressionToGlsl(context, args[args.length - 1], outputType);
+      var result = null;
+
+      for (var _i = args.length - 3; _i >= 0; _i -= 2) {
+        var condition = expressionToGlsl(context, args[_i]);
+        var output = expressionToGlsl(context, args[_i + 1], outputType);
+        result = "(".concat(condition, " ? ").concat(output, " : ").concat(result || fallback, ")");
+      }
+
+      return result;
+    }
+  };
+
+  /**
+   * @typedef {import("../source/DataTile.js").default|import("../source/TileImage.js").default} SourceType
+   */
+
+  /**
+   * @typedef {Object} Style
+   * Translates tile data to rendered pixels.
+   *
+   * @property {Object<string, (string|number)>} [variables] Style variables.  Each variable must hold a number or string.  These
+   * variables can be used in the `color`, `brightness`, `contrast`, `exposure`, `saturation` and `gamma`
+   * {@link import("../style/expressions.js").ExpressionValue expressions}, using the `['var', 'varName']` operator.
+   * To update style variables, use the {@link import("./WebGLTile.js").default#updateStyleVariables} method.
+   * @property {import("../style/expressions.js").ExpressionValue} [color] An expression applied to color values.
+   * @property {import("../style/expressions.js").ExpressionValue} [brightness=0] Value used to decrease or increase
+   * the layer brightness.  Values range from -1 to 1.
+   * @property {import("../style/expressions.js").ExpressionValue} [contrast=0] Value used to decrease or increase
+   * the layer contrast.  Values range from -1 to 1.
+   * @property {import("../style/expressions.js").ExpressionValue} [exposure=0] Value used to decrease or increase
+   * the layer exposure.  Values range from -1 to 1.
+   * @property {import("../style/expressions.js").ExpressionValue} [saturation=0] Value used to decrease or increase
+   * the layer saturation.  Values range from -1 to 1.
+   * @property {import("../style/expressions.js").ExpressionValue} [gamma=1] Apply a gamma correction to the layer.
+   * Values range from 0 to infinity.
+   */
+
+  /**
+   * @typedef {Object} Options
+   * @property {Style} [style] Style to apply to the layer.
+   * @property {string} [className='ol-layer'] A CSS class name to set to the layer element.
+   * @property {number} [opacity=1] Opacity (0, 1).
+   * @property {boolean} [visible=true] Visibility.
+   * @property {import("../extent.js").Extent} [extent] The bounding extent for layer rendering.  The layer will not be
+   * rendered outside of this extent.
+   * @property {number} [zIndex] The z-index for layer rendering.  At rendering time, the layers
+   * will be ordered, first by Z-index and then by position. When `undefined`, a `zIndex` of 0 is assumed
+   * for layers that are added to the map's `layers` collection, or `Infinity` when the layer's `setMap()`
+   * method was used.
+   * @property {number} [minResolution] The minimum resolution (inclusive) at which this layer will be
+   * visible.
+   * @property {number} [maxResolution] The maximum resolution (exclusive) below which this layer will
+   * be visible.
+   * @property {number} [minZoom] The minimum view zoom level (exclusive) above which this layer will be
+   * visible.
+   * @property {number} [maxZoom] The maximum view zoom level (inclusive) at which this layer will
+   * be visible.
+   * @property {number} [preload=0] Preload. Load low-resolution tiles up to `preload` levels. `0`
+   * means no preloading.
+   * @property {SourceType} [source] Source for this layer.
+   * @property {Array<SourceType>|function(import("../extent.js").Extent, number):Array<SourceType>} [sources] Array
+   * of sources for this layer. Takes precedence over `source`. Can either be an array of sources, or a function that
+   * expects an extent and a resolution (in view projection units per pixel) and returns an array of sources. See
+   * {@link module:ol/source.sourcesFromTileGrid} for a helper function to generate sources that are organized in a
+   * pyramid following the same pattern as a tile grid. **Note:** All sources must have the same band count and content.
+   * @property {import("../Map.js").default} [map] Sets the layer as overlay on a map. The map will not manage
+   * this layer in its layers collection, and the layer will be rendered on top. This is useful for
+   * temporary layers. The standard way to add a layer to a map and have it managed by the map is to
+   * use {@link module:ol/Map~Map#addLayer}.
+   * @property {boolean} [useInterimTilesOnError=true] Use interim tiles on error.
+   * @property {number} [cacheSize=512] The internal texture cache size.  This needs to be large enough to render
+   * two zoom levels worth of tiles.
+   */
+
+  /**
+   * @typedef {Object} ParsedStyle
+   * @property {string} vertexShader The vertex shader.
+   * @property {string} fragmentShader The fragment shader.
+   * @property {Object<string,import("../webgl/Helper.js").UniformValue>} uniforms Uniform definitions.
+   * @property {Array<import("../webgl/PaletteTexture.js").default>} paletteTextures Palette textures.
+   */
+
+  /**
+   * @param {Style} style The layer style.
+   * @param {number} [bandCount] The number of bands.
+   * @return {ParsedStyle} Shaders and uniforms generated from the style.
+   */
+
+  function parseStyle(style, bandCount) {
+    var vertexShader = "\n    attribute vec2 ".concat(Attributes.TEXTURE_COORD, ";\n    uniform mat4 ").concat(Uniforms.TILE_TRANSFORM, ";\n    uniform float ").concat(Uniforms.TEXTURE_PIXEL_WIDTH, ";\n    uniform float ").concat(Uniforms.TEXTURE_PIXEL_HEIGHT, ";\n    uniform float ").concat(Uniforms.TEXTURE_RESOLUTION, ";\n    uniform float ").concat(Uniforms.TEXTURE_ORIGIN_X, ";\n    uniform float ").concat(Uniforms.TEXTURE_ORIGIN_Y, ";\n    uniform float ").concat(Uniforms.DEPTH, ";\n\n    varying vec2 v_textureCoord;\n    varying vec2 v_mapCoord;\n\n    void main() {\n      v_textureCoord = ").concat(Attributes.TEXTURE_COORD, ";\n      v_mapCoord = vec2(\n        ").concat(Uniforms.TEXTURE_ORIGIN_X, " + ").concat(Uniforms.TEXTURE_RESOLUTION, " * ").concat(Uniforms.TEXTURE_PIXEL_WIDTH, " * v_textureCoord[0],\n        ").concat(Uniforms.TEXTURE_ORIGIN_Y, " - ").concat(Uniforms.TEXTURE_RESOLUTION, " * ").concat(Uniforms.TEXTURE_PIXEL_HEIGHT, " * v_textureCoord[1]\n      );\n      gl_Position = ").concat(Uniforms.TILE_TRANSFORM, " * vec4(").concat(Attributes.TEXTURE_COORD, ", ").concat(Uniforms.DEPTH, ", 1.0);\n    }\n  ");
+    /**
+     * @type {import("../style/expressions.js").ParsingContext}
+     */
+
+    var context = {
+      inFragmentShader: true,
+      variables: [],
+      attributes: [],
+      stringLiteralsMap: {},
+      functions: {},
+      bandCount: bandCount
+    };
+    var pipeline = [];
+
+    if (style.color !== undefined) {
+      var color = expressionToGlsl(context, style.color, ValueTypes.COLOR);
+      pipeline.push("color = ".concat(color, ";"));
+    }
+
+    if (style.contrast !== undefined) {
+      var contrast = expressionToGlsl(context, style.contrast, ValueTypes.NUMBER);
+      pipeline.push("color.rgb = clamp((".concat(contrast, " + 1.0) * color.rgb - (").concat(contrast, " / 2.0), vec3(0.0, 0.0, 0.0), vec3(1.0, 1.0, 1.0));"));
+    }
+
+    if (style.exposure !== undefined) {
+      var exposure = expressionToGlsl(context, style.exposure, ValueTypes.NUMBER);
+      pipeline.push("color.rgb = clamp((".concat(exposure, " + 1.0) * color.rgb, vec3(0.0, 0.0, 0.0), vec3(1.0, 1.0, 1.0));"));
+    }
+
+    if (style.saturation !== undefined) {
+      var saturation = expressionToGlsl(context, style.saturation, ValueTypes.NUMBER);
+      pipeline.push("\n      float saturation = ".concat(saturation, " + 1.0;\n      float sr = (1.0 - saturation) * 0.2126;\n      float sg = (1.0 - saturation) * 0.7152;\n      float sb = (1.0 - saturation) * 0.0722;\n      mat3 saturationMatrix = mat3(\n        sr + saturation, sr, sr,\n        sg, sg + saturation, sg,\n        sb, sb, sb + saturation\n      );\n      color.rgb = clamp(saturationMatrix * color.rgb, vec3(0.0, 0.0, 0.0), vec3(1.0, 1.0, 1.0));\n    "));
+    }
+
+    if (style.gamma !== undefined) {
+      var gamma = expressionToGlsl(context, style.gamma, ValueTypes.NUMBER);
+      pipeline.push("color.rgb = pow(color.rgb, vec3(1.0 / ".concat(gamma, "));"));
+    }
+
+    if (style.brightness !== undefined) {
+      var brightness = expressionToGlsl(context, style.brightness, ValueTypes.NUMBER);
+      pipeline.push("color.rgb = clamp(color.rgb + ".concat(brightness, ", vec3(0.0, 0.0, 0.0), vec3(1.0, 1.0, 1.0));"));
+    }
+    /** @type {Object<string,import("../webgl/Helper").UniformValue>} */
+
+
+    var uniforms = {};
+    var numVariables = context.variables.length;
+
+    if (numVariables > 1 && !style.variables) {
+      throw new Error("Missing variables in style (expected ".concat(context.variables, ")"));
+    }
+
+    var _loop = function _loop(i) {
+      var variableName = context.variables[i];
+
+      if (!(variableName in style.variables)) {
+        throw new Error("Missing '".concat(variableName, "' in style variables"));
+      }
+
+      var uniformName = uniformNameForVariable(variableName);
+
+      uniforms[uniformName] = function () {
+        var value = style.variables[variableName];
+
+        if (typeof value === 'string') {
+          value = getStringNumberEquivalent(context, value);
+        }
+
+        return value !== undefined ? value : -9999999; // to avoid matching with the first string literal
+      };
+    };
+
+    for (var i = 0; i < numVariables; ++i) {
+      _loop(i);
+    }
+
+    var uniformDeclarations = Object.keys(uniforms).map(function (name) {
+      return "uniform float ".concat(name, ";");
+    });
+    var textureCount = Math.ceil(bandCount / 4);
+    uniformDeclarations.push("uniform sampler2D ".concat(Uniforms.TILE_TEXTURE_ARRAY, "[").concat(textureCount, "];"));
+
+    if (context.paletteTextures) {
+      uniformDeclarations.push("uniform sampler2D ".concat(PALETTE_TEXTURE_ARRAY, "[").concat(context.paletteTextures.length, "];"));
+    }
+
+    var functionDefintions = Object.keys(context.functions).map(function (name) {
+      return context.functions[name];
+    });
+    var fragmentShader = "\n    #ifdef GL_FRAGMENT_PRECISION_HIGH\n    precision highp float;\n    #else\n    precision mediump float;\n    #endif\n\n    varying vec2 v_textureCoord;\n    varying vec2 v_mapCoord;\n    uniform vec4 ".concat(Uniforms.RENDER_EXTENT, ";\n    uniform float ").concat(Uniforms.TRANSITION_ALPHA, ";\n    uniform float ").concat(Uniforms.TEXTURE_PIXEL_WIDTH, ";\n    uniform float ").concat(Uniforms.TEXTURE_PIXEL_HEIGHT, ";\n    uniform float ").concat(Uniforms.RESOLUTION, ";\n    uniform float ").concat(Uniforms.ZOOM, ";\n\n    ").concat(uniformDeclarations.join('\n'), "\n\n    ").concat(functionDefintions.join('\n'), "\n\n    void main() {\n      if (\n        v_mapCoord[0] < ").concat(Uniforms.RENDER_EXTENT, "[0] ||\n        v_mapCoord[1] < ").concat(Uniforms.RENDER_EXTENT, "[1] ||\n        v_mapCoord[0] > ").concat(Uniforms.RENDER_EXTENT, "[2] ||\n        v_mapCoord[1] > ").concat(Uniforms.RENDER_EXTENT, "[3]\n      ) {\n        discard;\n      }\n\n      vec4 color = texture2D(").concat(Uniforms.TILE_TEXTURE_ARRAY, "[0],  v_textureCoord);\n\n      ").concat(pipeline.join('\n'), "\n\n      if (color.a == 0.0) {\n        discard;\n      }\n\n      gl_FragColor = color;\n      gl_FragColor.rgb *= gl_FragColor.a;\n      gl_FragColor *= ").concat(Uniforms.TRANSITION_ALPHA, ";\n    }");
+    return {
+      vertexShader: vertexShader,
+      fragmentShader: fragmentShader,
+      uniforms: uniforms,
+      paletteTextures: context.paletteTextures
+    };
+  }
+  /**
+   * @classdesc
+   * For layer sources that provide pre-rendered, tiled images in grids that are
+   * organized by zoom levels for specific resolutions.
+   * Note that any property set in the options is set as a {@link module:ol/Object~BaseObject}
+   * property on the layer object; for example, setting `title: 'My Title'` in the
+   * options means that `title` is observable, and has get/set accessors.
+   *
+   * @extends BaseTileLayer<SourceType, WebGLTileLayerRenderer>
+   * @fires import("../render/Event.js").RenderEvent
+   * @api
+   */
+
+
+  var WebGLTileLayer = /*#__PURE__*/function (_BaseTileLayer) {
+    _inherits(WebGLTileLayer, _BaseTileLayer);
+
+    var _super = _createSuper(WebGLTileLayer);
+
+    /**
+     * @param {Options} options Tile layer options.
+     */
+    function WebGLTileLayer(options) {
+      var _this;
+
+      _classCallCheck(this, WebGLTileLayer);
+
+      options = options ? Object.assign({}, options) : {};
+      var style = options.style || {};
+      delete options.style;
+      var cacheSize = options.cacheSize;
+      delete options.cacheSize;
+      _this = _super.call(this, options);
+      /**
+       * @type {Array<SourceType>|function(import("../extent.js").Extent, number):Array<SourceType>}
+       * @private
+       */
+
+      _this.sources_ = options.sources;
+      /**
+       * @type {SourceType|null}
+       * @private
+       */
+
+      _this.renderedSource_ = null;
+      /**
+       * @type {number}
+       * @private
+       */
+
+      _this.renderedResolution_ = NaN;
+      /**
+       * @type {Style}
+       * @private
+       */
+
+      _this.style_ = style;
+      /**
+       * @type {number}
+       * @private
+       */
+
+      _this.cacheSize_ = cacheSize;
+      /**
+       * @type {Object<string, (string|number)>}
+       * @private
+       */
+
+      _this.styleVariables_ = _this.style_.variables || {};
+
+      _this.addChangeListener(LayerProperty.SOURCE, _this.handleSourceUpdate_);
+
+      return _this;
+    }
+    /**
+     * Gets the sources for this layer, for a given extent and resolution.
+     * @param {import("../extent.js").Extent} extent Extent.
+     * @param {number} resolution Resolution.
+     * @return {Array<SourceType>} Sources.
+     */
+
+
+    _createClass(WebGLTileLayer, [{
+      key: "getSources",
+      value: function getSources(extent, resolution) {
+        var source = this.getSource();
+        return this.sources_ ? typeof this.sources_ === 'function' ? this.sources_(extent, resolution) : this.sources_ : source ? [source] : [];
+      }
+      /**
+       * @return {SourceType} The source being rendered.
+       */
+
+    }, {
+      key: "getRenderSource",
+      value: function getRenderSource() {
+        return this.renderedSource_ || this.getSource();
+      }
+      /**
+       * @return {import("../source/Source.js").State} Source state.
+       */
+
+    }, {
+      key: "getSourceState",
+      value: function getSourceState() {
+        var source = this.getRenderSource();
+        return source ? source.getState() : 'undefined';
+      }
+      /**
+       * @private
+       */
+
+    }, {
+      key: "handleSourceUpdate_",
+      value: function handleSourceUpdate_() {
+        if (this.hasRenderer()) {
+          this.getRenderer().clearCache();
+        }
+
+        if (this.getSource()) {
+          this.setStyle(this.style_);
+        }
+      }
+      /**
+       * @private
+       * @return {number} The number of source bands.
+       */
+
+    }, {
+      key: "getSourceBandCount_",
+      value: function getSourceBandCount_() {
+        var max = Number.MAX_SAFE_INTEGER;
+        var sources = this.getSources([-max, -max, max, max], max);
+        return sources && sources.length && 'bandCount' in sources[0] ? sources[0].bandCount : 4;
+      }
+    }, {
+      key: "createRenderer",
+      value: function createRenderer() {
+        var parsedStyle = parseStyle(this.style_, this.getSourceBandCount_());
+        return new WebGLTileLayerRenderer(this, {
+          vertexShader: parsedStyle.vertexShader,
+          fragmentShader: parsedStyle.fragmentShader,
+          uniforms: parsedStyle.uniforms,
+          cacheSize: this.cacheSize_,
+          paletteTextures: parsedStyle.paletteTextures
+        });
+      }
+      /**
+       * @param {import("../Map").FrameState} frameState Frame state.
+       * @param {Array<SourceType>} sources Sources.
+       * @return {HTMLElement} Canvas.
+       */
+
+    }, {
+      key: "renderSources",
+      value: function renderSources(frameState, sources) {
+        var layerRenderer = this.getRenderer();
+        var canvas;
+
+        for (var i = 0, ii = sources.length; i < ii; ++i) {
+          this.renderedSource_ = sources[i];
+
+          if (layerRenderer.prepareFrame(frameState)) {
+            canvas = layerRenderer.renderFrame(frameState);
+          }
+        }
+
+        return canvas;
+      }
+      /**
+       * @param {?import("../Map.js").FrameState} frameState Frame state.
+       * @param {HTMLElement} target Target which the renderer may (but need not) use
+       * for rendering its content.
+       * @return {HTMLElement} The rendered element.
+       */
+
+    }, {
+      key: "render",
+      value: function render(frameState, target) {
+        var _this2 = this;
+
+        this.rendered = true;
+        var viewState = frameState.viewState;
+        var sources = this.getSources(frameState.extent, viewState.resolution);
+        var ready = true;
+
+        var _loop2 = function _loop2(i, ii) {
+          var source = sources[i];
+          var sourceState = source.getState();
+
+          if (sourceState == 'loading') {
+            var onChange = function onChange() {
+              if (source.getState() == 'ready') {
+                source.removeEventListener('change', onChange);
+
+                _this2.changed();
+              }
+            };
+
+            source.addEventListener('change', onChange);
+          }
+
+          ready = ready && sourceState == 'ready';
+        };
+
+        for (var i = 0, ii = sources.length; i < ii; ++i) {
+          _loop2(i);
+        }
+
+        var canvas = this.renderSources(frameState, sources);
+
+        if (this.getRenderer().renderComplete && ready) {
+          // Fully rendered, done.
+          this.renderedResolution_ = viewState.resolution;
+          return canvas;
+        } // Render sources from previously fully rendered frames
+
+
+        if (this.renderedResolution_ > 0.5 * viewState.resolution) {
+          var altSources = this.getSources(frameState.extent, this.renderedResolution_).filter(function (source) {
+            return !sources.includes(source);
+          });
+
+          if (altSources.length > 0) {
+            return this.renderSources(frameState, altSources);
+          }
+        }
+
+        return canvas;
+      }
+      /**
+       * Update the layer style.  The `updateStyleVariables` function is a more efficient
+       * way to update layer rendering.  In cases where the whole style needs to be updated,
+       * this method may be called instead.  Note that calling this method will also replace
+       * any previously set variables, so the new style also needs to include new variables,
+       * if needed.
+       * @param {Style} style The new style.
+       */
+
+    }, {
+      key: "setStyle",
+      value: function setStyle(style) {
+        this.styleVariables_ = style.variables || {};
+        this.style_ = style;
+        var parsedStyle = parseStyle(this.style_, this.getSourceBandCount_());
+        var renderer = this.getRenderer();
+        renderer.reset({
+          vertexShader: parsedStyle.vertexShader,
+          fragmentShader: parsedStyle.fragmentShader,
+          uniforms: parsedStyle.uniforms,
+          paletteTextures: parsedStyle.paletteTextures
+        });
+        this.changed();
+      }
+      /**
+       * Update any variables used by the layer style and trigger a re-render.
+       * @param {Object<string, number>} variables Variables to update.
+       * @api
+       */
+
+    }, {
+      key: "updateStyleVariables",
+      value: function updateStyleVariables(variables) {
+        Object.assign(this.styleVariables_, variables);
+        this.changed();
+      }
+    }]);
+
+    return WebGLTileLayer;
+  }(BaseTileLayer);
+  /**
+   * Clean up underlying WebGL resources.
+   * @function
+   * @api
+   */
+
+
+  WebGLTileLayer.prototype.dispose;
+
   window.addEventListener('load', /*#__PURE__*/_asyncToGenerator( /*#__PURE__*/_regeneratorRuntime().mark(function _callee() {
-    var response, fc, vectorSource, styles, styleFunction, vectorLayer;
+    var response, fc, vectorSource, styles, styleFunction, vectorLayer, map;
     return _regeneratorRuntime().wrap(function _callee$(_context) {
       while (1) {
         switch (_context.prev = _context.next) {
@@ -56365,7 +62411,23 @@
               source: vectorSource,
               style: styleFunction
             });
-            new Map$1({
+            fetch('HH_angCorrected_db.tiff').then(function (response) {
+              return response.blob();
+            }).then(function (blob) {
+              var src = new GeoTIFFSource({
+                sources: [{
+                  blob: blob
+                }]
+              });
+              map.addLayer(new WebGLTileLayer({
+                source: src
+              }));
+              src.getView().then(function (viewConfig) {
+                viewConfig.showFullExtent = true;
+                return viewConfig;
+              });
+            });
+            map = new Map$1({
               target: 'map',
               layers: [new TileLayer({
                 source: new OSM()
@@ -56376,7 +62438,7 @@
               })
             });
 
-          case 11:
+          case 12:
           case "end":
             return _context.stop();
         }
